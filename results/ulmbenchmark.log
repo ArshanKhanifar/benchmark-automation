@@ -1,0 +1,84 @@
+sizeof char/short/int/long/long_long/void*/size_t/off_t:
+1/2/4/8/8/8/8/8
+clk is 128
+       1.8 nsec/call        1.8 user        0.0 sys: atoi
+     166.4 nsec/call      166.4 user        0.0 sys: snprintf
+     335.2 nsec/call      335.2 user        0.0 sys: snprintf_float
+      36.2 nsec/call       36.2 user        0.0 sys: condvar_signal
+      33.3 nsec/call       33.3 user        0.0 sys: mutex_lock_unlock
+      19.4 nsec/call       19.4 user        0.0 sys: pthread_mutex_trylock
+      23.0 nsec/call       23.0 user        0.0 sys: gettimeofday
+     282.7 nsec/call       11.8 user      271.0 sys: getrusage
+     144.7 nsec/call       11.2 user      132.7 sys: read
+     200.1 nsec/call       15.9 user      184.2 sys: read1bdevzero
+     286.8 nsec/call       32.5 user      254.3 sys: read8kdevzero
+      66.2 usec/call      308.1 user    65905.0 sys 0.064 hpf 0.000 spf: read2mdevzero
+started printing pagefaults. spf=minor pagefaults, hpf=major pagefault. Numbers are per bench call
+       9.8 nsec/call        9.7 user        0.0 sys: rand
+       3.5 nsec/call        3.5 user        0.0 sys: random
+       9.7 nsec/call        9.7 user        0.0 sys: floatrand
+    2434.7 nsec/call     2440.6 user        0.0 sys: cpp_testhrow_throw
+       1.8 nsec/call        1.8 user        0.0 sys: cpp_testhrow_no_throw
+       1.7 nsec/call        1.8 user        0.0 sys: cpp_testhrow_no_possible_throw
+       1.8 nsec/call        1.8 user        0.0 sys: cpp_testhrow_no_cleanup_no_throw
+       1.6 nsec/call        1.6 user        0.0 sys: cpp_testhrow_no_cleanup_no_possible_throw
+   10071.7 usec/call  9929660.4 user   108377.4 sys 57.962 hpf 0.000 spf: prepare_qsort_1m
+   15720.4 usec/call 15675941.2 user    44500.0 sys 30.147 hpf 0.000 spf: qsort_1m
+   15687.7 usec/call 15701000.0 user        0.0 sys 30.176 hpf 0.000 spf: qsort_1m2
+   15646.4 usec/call 15666705.9 user        0.0 sys 30.176 hpf 0.000 spf: qsort_1m3
+       2.1 nsec/call        2.1 user        0.0 sys: hash
+Hash 2723092F -> 2B951A79
+Size of mapped area for protect/segv tests: 8192 MB, 262144 cards
+no touch by default
+    1087.4 nsec/call       17.1 user     1068.3 sys: mprotect_randloc
+     256.6 nsec/call        8.0 user      247.6 sys: mprotect_sameloc
+    1848.9 nsec/call       50.0 user     1799.0 sys: mmap_no_touch
+  328104.9 usec/call 28517000.0 user 299586500.0 sys 262144.000 hpf 0.000 spf: mmap_and_touch
+    5467.1 nsec/call     1104.9 user     4362.1 sys 0.946 hpf 0.000 spf: trigger_segfaults
+  (91886 segfaults, 97179 writes, watch collision ratio)
+     242.3 nsec/call       41.7 user      200.6 sys: madvise_randloc
+    1107.3 nsec/call       68.4 user     1038.9 sys: mprotect_randloc
+with touch by default
+      12.4 usec/call     1094.3 user    11298.6 sys 8.000 hpf 0.000 spf: mprotect_randloc
+     259.3 nsec/call       29.5 user      229.7 sys: mprotect_sameloc
+    2151.8 nsec/call        8.9 user     2142.9 sys: mmap_no_touch
+  328661.5 usec/call 61849000.0 user 266811500.0 sys 262144.000 hpf 0.000 spf: mmap_and_touch
+      15.3 usec/call     2028.9 user    13289.2 sys 8.436 hpf 0.000 spf: trigger_segfaults
+  (32769 segfaults, 34960 writes, watch collision ratio)
+    1057.9 nsec/call       82.4 user      975.5 sys: madvise_randloc
+      12.4 usec/call      975.9 user    11425.4 sys 8.000 hpf 0.000 spf: mprotect_randloc
+All mprotect calls double:
+      12.6 usec/call     1530.5 user    11019.8 sys 8.000 hpf 0.000 spf: mprotect_randloc
+     432.4 nsec/call       43.3 user      389.1 sys: mprotect_sameloc
+    2151.9 nsec/call       56.1 user     2095.8 sys: mmap_no_touch
+  329189.0 usec/call 34767000.0 user 294420500.0 sys 262144.000 hpf 0.000 spf: mmap_and_touch
+      15.3 usec/call     2498.7 user    12842.0 sys 8.417 hpf 0.000 spf: trigger_segfaults
+  (32769 segfaults, 35038 writes, watch collision ratio)
+    1075.9 nsec/call      114.9 user      960.9 sys: madvise_randloc
+      12.6 usec/call     1684.7 user    10934.9 sys 8.000 hpf 0.000 spf: mprotect_randloc
+All mprotect calls 10x:
+    8392.0 nsec/call      844.2 user     7547.8 sys 4.141 hpf 0.000 spf: mprotect_randloc
+    1650.7 nsec/call       43.9 user     1606.8 sys: mprotect_sameloc
+    2069.4 nsec/call       67.1 user     2002.3 sys: mmap_no_touch
+  311790.0 usec/call 35731000.0 user 276059000.0 sys 262144.000 hpf 0.000 spf: mmap_and_touch
+      23.4 usec/call     2721.2 user    20666.9 sys 15.014 hpf 0.000 spf: trigger_segfaults
+  (34999 segfaults, 37252 writes, watch collision ratio)
+    1068.7 nsec/call       82.0 user      986.7 sys: madvise_randloc
+      13.3 usec/call     1942.7 user    11328.6 sys 8.000 hpf 0.000 spf: mprotect_randloc
+All mprotect calls single:
+      11.9 usec/call      949.3 user    10910.0 sys 8.000 hpf 0.000 spf: mprotect_randloc
+     259.8 nsec/call       19.9 user      239.9 sys: mprotect_sameloc
+    2059.2 nsec/call       64.6 user     1994.6 sys: mmap_no_touch
+  307031.0 usec/call 15738500.0 user 291291500.0 sys 262144.000 hpf 0.000 spf: mmap_and_touch
+      12.1 usec/call     1286.5 user    10839.1 sys 6.929 hpf 0.000 spf: trigger_segfaults
+  (41460 segfaults, 43815 writes, watch collision ratio)
+    1069.9 nsec/call       64.3 user     1005.6 sys: madvise_randloc
+      13.3 usec/call     1257.8 user    12072.3 sys 9.223 hpf 0.000 spf: mprotect_randloc
+   10000.0 nsec/call    10052.0 user        0.0 sys   390.6 M/sec : rdbuf<randclass_rand> size 4 k
+      23.8 usec/call       55.2 user    23661.3 sys   163.9 M/sec : rdbuf<randclass_dev_urandom> size 4 k
+     254.7 nsec/call       37.1 user      217.6 sys    15.0 G/sec : rdbuf<randclass_dev_zero> size 4 k
+      38.3 usec/call    38150.0 user      186.3 sys   101.9 M/sec : rdbuf<randclass_walk16> size 4 k
+    5139.7 usec/call  5145105.8 user        0.0 sys 4.933 hpf 0.000 spf   389.1 M/sec : rdbuf<randclass_rand> size 2 M
+   12089.6 usec/call        0.0 user 12102750.0 sys   165.4 M/sec : rdbuf<randclass_dev_urandom> size 2 M
+      66.2 usec/call       14.8 user    66021.2 sys    29.5 G/sec : rdbuf<randclass_dev_zero> size 2 M
+   19778.3 usec/call 19811666.7 user        0.0 sys   101.1 M/sec : rdbuf<randclass_walk16> size 2 M

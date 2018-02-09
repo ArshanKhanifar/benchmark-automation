@@ -10,6 +10,14 @@ def str2bool(v):
 
 mainParser = argparse.ArgumentParser(description='Benchmark for pti, and ibrs:')
 
+mainParser.add_argument('--skip-setup',
+                    action='store_true',
+                    help='skips the machine setup')
+
+mainParser.add_argument('--skip-update',
+                    action='store_true',
+                    help='skips the kernel update')
+
 mainParser.add_argument('-s', '-spotmarket',
                     action='store',
                     default=True,
@@ -17,14 +25,13 @@ mainParser.add_argument('-s', '-spotmarket',
                     type=str2bool,
                     help='use spotmarket pricing, defaults to true') 
 
-mainParser.add_argument('--create-device',
-                    action='store_true',
-                    default=False,
-                    help='if set, creates a new device') 
-
 mainParser.add_argument('--device-id',
                     action='store',
                     help='when not creating a new device, use the device id to run the tests on an existing device') 
+
+mainParser.add_argument('--create-new',
+                    action='store_true',
+                    help='when set, creates a new device')
 
 mainParser.add_argument('-f', '--facility',
                     metavar='facility',
