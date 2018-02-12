@@ -47,7 +47,7 @@ mainParser.add_argument('-os',
 mainParser.add_argument('-sp', '--spot-price-max',
                     action='store',
                     type=float,
-                    default=0.5,
+                    default=0.40,
                     help='operating system to use')
 
 mainParser.add_argument('-hostname',
@@ -57,6 +57,6 @@ mainParser.add_argument('-hostname',
 
 mainParser.add_argument('-p', '-plan',
                     action='store',
-                    default='baremetal_1',
+                    default='baremetal_2',
                     help='type of plan')
 

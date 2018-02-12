@@ -6,30 +6,7 @@ import json
 import time
 import sys
 from src.Benchmark import Benchmark, BenchmarkRunner
-
-def setup_device():
-    commands_setup = [
-        "sed -i .bak 's/quarterly/latest/' /etc/pkg/FreeBSD.conf",
-        "sed -i .bak -e '/^#.*ASSUME_ALWAYS_YES /s/^#//' -e '/ASSUME_ALWAYS_YES /s/false/true/' /usr/local/etc/pkg.conf",
-        "pkg install tmux vim-console git fzf zsh x86info yasm",
-        "git clone https://github.com/freebsd/freebsd.git /usr/tmp.src",
-        "cp -r /usr/tmp.src/. /usr/src",
-        "chsh -s /bin/sh",
-    ]
-    client = util.create_client(ip_address)
-    util.execute_commands(client, commands_setup)
-    client.close()
-
-def update_device():
-    commands_build = [
-        ["make -C /usr/src KERNCONF=GENERIC-NODEBUG -j$(sysctl -n hw.ncpu) buildkernel buildworld", True],
-        ["make -C /usr/src KERNCONF=GENERIC-NODEBUG installkernel installworld", True],
-    ]
-    client = util.create_client(ip_address)
-    util.execute_commands(client, commands_build)
-    client.close()
-    util.reboot_device(device)
-    util.wait_till_active(device)
+from setup import setup_device, update_device
 
 args = mainParser.parse_args()
 
@@ -45,13 +22,13 @@ ip_address = util.get_device_ip(device)
 if args.skip_setup:
     print("skipping setup.")
 else:
-    setup_device()
+    setup_device(ip_address)
 
 # update: builds and updates the kernel 
 if args.skip_update:
     print("skipping update.")
 else:
-    update_device()
+    update_device(ip_address)
 
 test_setup = [
     "make -C /usr/src/tools/tools/syscall_timing",
@@ -76,8 +53,10 @@ test_benchmark = Benchmark(name='test',
 
 client = util.create_client(ip_address)
 benchmark_runner = BenchmarkRunner(client)
+benchmark_runner.add_benchmark(test_benchmark)
 benchmark_runner.run_benchmarks(names=['test'])
 client.close()
+
 print("BUENO")
 
 sys.exit()

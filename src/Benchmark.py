@@ -4,19 +4,18 @@ from datetime import datetime
 import sys
 
 class Benchmark(object):
-    def __init__(self, name, paths, commands, pre_callback=None, setup=[]):
+    def __init__(self, name, paths, commands, setup_method=None, setup=[]):
         self.name = name
         self.setup = setup # all the setup commands go here
         self.commands = commands # main commands
-        self.pre_callback = pre_callback # gets called after benchmarking is done
+        self.setup_method = setup_method # gets called before run
         self.paths = paths
 
     def run(self, client):
+        if self.setup_method is not None:
+            self.setup_method()
         util.execute_commands(client, self.setup)
         util.execute_commands(client, self.commands)
-        util.execute_commands(client, self.teardown)
-        if self.callback is not None:
-            callback()
 
 class BenchmarkRunner(object):
     def __init__(self, client):
@@ -35,14 +34,8 @@ class BenchmarkRunner(object):
         #TODO: implement run_all
     
     def run_benchmark(self, benchmark, foldername):
-        try: 
-            benchmark.pre_callback()
-        except Exception as e:
-            print(e)
-            print("pre callback for %s failed" %benchmark.name)
-            sys.exit()
         try:
-            benchmark.run()
+            benchmark.run(self.client)
         except Exception as e:
             print(e)
             print("Running benchmark %s failed!" %benchmark.name)
