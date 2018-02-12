@@ -6,7 +6,7 @@ import json
 import time
 import sys
 from src.Benchmark import Benchmark, BenchmarkRunner
-from setup import setup_device, update_device
+from DeviceSetup import DeviceSetup
 
 args = mainParser.parse_args()
 
@@ -18,43 +18,38 @@ device = util.get_testing_device(args)
 util.wait_till_active(device)
 ip_address = util.get_device_ip(device)
 
+device_setup = DeviceSetup(device)
+
 # setup: installs packages, sets environment configs
 if args.skip_setup:
     print("skipping setup.")
 else:
-    setup_device(ip_address)
+    device_setup.setup()
 
 # update: builds and updates the kernel 
 if args.skip_update:
     print("skipping update.")
 else:
-    update_device(ip_address)
+    device_setup.update()
 
-test_setup = [
-    "make -C /usr/src/tools/tools/syscall_timing",
-]
+if args.skip_benchmark:
+    print("skipping benchmark.")
+    sys.exit()
 
-test_commands = [
-    "uname -a > uname.log",
-    "x86info -a > x86info.log",
-    "/usr/obj/usr/src/amd64.amd64/tools/tools/syscall_timing/syscall_timing getppid > getppid.log"
-]
-
-test_paths = [
-    "/root/uname.log",
-    "/root/x86info.log",
-    "/root/getppid.log",
-]
-
-test_benchmark = Benchmark(name='test',
-                           setup=test_setup,
-                           paths=test_paths,
-                           commands=test_commands)
-
+benchmarks = json.load(open(args.benchmarks_file))
 client = util.create_client(ip_address)
-benchmark_runner = BenchmarkRunner(client)
-benchmark_runner.add_benchmark(test_benchmark)
-benchmark_runner.run_benchmarks(names=['test'])
+benchmark_runner = BenchmarkRunner(client, device)
+bNames= []
+for benchmark in benchmarks:
+    bObj = Benchmark(name=benchmark['name'],
+            setup=benchmark['setup'],
+            paths=benchmark['paths'],
+            needs_reboot=benchmark['needs_reboot'],
+            commands=benchmark['commands'])
+    benchmark_runner.add_benchmark(bObj)
+    bNames = bNames + [benchmark['name']]
+
+benchmark_runner.run_benchmarks(names=bNames)
 client.close()
 
 print("BUENO")
@@ -64,6 +59,7 @@ sys.exit()
 client = util.create_client(ip_address)
 sftp_client = client.open_sftp()
 sftp_client.put('binaries.tar', '/root/binaries.tar')
+
 util.execute_commands(client, [
         "kldload cpuctl",
         #"tar -xf binaries.tar",

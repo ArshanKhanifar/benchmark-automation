@@ -1,0 +1,53 @@
+{
+	"once": [
+		"make -C /usr/src/tools/tools/syscall_timing"
+	],
+	"common-setup": [
+		"kldload cpuctl",
+		"sed -i '.bak' '/.*pti=[01]$/d' /boot/loader.conf",
+		"sed -i '.bak' '/.*pcid_enabled=[01]$/d' /boot/loader.conf"
+	],
+	"common-commands": [
+		"sysctl vm.pmap.pti",
+		"sysctl vm.pmap.pcid",
+		"sysctl vm.pmap > pmap.log",
+		"uname -a > uname.log",
+		"x86info -a > x86info.log",
+		"/usr/obj/usr/src/amd64.amd64/tools/tools/syscall_timing/syscall_timing getppid > getppid.log"
+	],
+	"benchmarks": [
+		{
+			"name": "pti-0-pcid-0",
+			"setup": [
+				"echo 'vm.pmap.pti=0' >> /boot/loader.conf",
+				"echo 'vm.pmap.pcid_enabled=0' >> /boot/loader.conf"
+			],
+			"needs_reboot": true
+		},
+		{
+			"name": "pti-0-pcid-1",
+			"setup": [
+				"echo 'vm.pmap.pti=0' >> /boot/loader.conf",
+				"echo 'vm.pmap.pcid_enabled=1' >> /boot/loader.conf"
+			],
+			"needs_reboot": true
+		},
+		{
+			"name": "pti-1-pcid-1",
+			"setup": [
+				"echo 'vm.pmap.pti=1' >> /boot/loader.conf",
+				"echo 'vm.pmap.pcid_enabled=1' >> /boot/loader.conf"
+			],
+			"needs_reboot": true
+		},
+		{
+			"name": "pti-1-pcid-0",
+			"setup": [
+				"echo 'vm.pmap.pti=1' >> /boot/loader.conf",
+				"echo 'vm.pmap.pcid_enabled=0' >> /boot/loader.conf"
+			],
+			"needs_reboot": true
+		}
+	]
+}
+
