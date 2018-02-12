@@ -80,7 +80,7 @@ def create_client(ip_address):
         client.connect(ip_address, 
                        username='root',
                        passphrase='Physics92',
-                       timeout=5)
+                       banner_timeout=5)
     except:
         print("ssh couldn't connect, trying again...")
         time.sleep(1)
