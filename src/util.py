@@ -1,6 +1,7 @@
 import time
 import packet
 import sys
+import os
 from paramiko.client import SSHClient,AutoAddPolicy
 
 manager = packet.Manager(auth_token="PDDno4gUFgZqMpE97nTKdvc1asVjqUyS")
@@ -11,6 +12,18 @@ def reboot_device(device):
     device.reboot()
     # sleep for 1 seconds so wait_till_active doesn't falsely get device as active
     time.sleep(1.0)
+
+def write_last(device_id):
+    if not os.path.isdir('cache'):
+        os.mkdir('cache')
+    fh = open('cache/deviceid', 'w')
+    fh.write(device_id)
+    fh.close()
+def read_last():
+    if not os.path.isfile('cache/deviceid'):
+        return None
+    fh = open('cache/deviceid', 'r')
+    return fh.readline()
 
 def get_device_ip(device):
     while (len(device.ip_addresses) == 0):
@@ -33,10 +46,18 @@ def wait_till_active(device):
  
 # either create the device or get device using id
 def get_testing_device(args):
+    if args.use_last:
+        device_id = read_last()
+        if device_id is None:
+            print('no last device id found')
+            sys.exit()
+        else:
+            return manager.get_device(device_id)
+
     if (args.device_id is None) and not args.create_new:
         print("Please specify either a device id or create new.")
         sys.exit()
-
+    device = None
     if args.device_id is None:
         print("Creating new device:")
         device = manager.create_device(project_id=project.id,
@@ -45,9 +66,10 @@ def get_testing_device(args):
                      operating_system=args.os,
                      spot_instance=args.s,
                      spot_price_max=args.spot_price_max)
-        return device
     else:
-        return manager.get_device(args.device_id)
+        device = manager.get_device(args.device_id)
+    write_last(device.id)
+    return device
 
 def execute_command(client, command):
     ignore = False

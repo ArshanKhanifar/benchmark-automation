@@ -18,6 +18,10 @@ mainParser.add_argument('--skip-update',
                     action='store_true',
                     help='skips the kernel update')
 
+mainParser.add_argument('--use-last',
+                    action='store_true',
+                    help='uses the last device id used, (stored in cache/deviceid)')
+
 mainParser.add_argument('-s', '-spotmarket',
                     action='store',
                     default=True,

@@ -15,12 +15,12 @@ def setup_device(ip_address):
     client.close()
 
 def update_device(ip_address):
-    commands_build = [
-        ["make -C /usr/src KERNCONF=GENERIC-NODEBUG -j$(sysctl -n hw.ncpu) buildkernel buildworld", True],
-        ["make -C /usr/src KERNCONF=GENERIC-NODEBUG installkernel installworld", True],
+    commands_update = [
+        "make -C /usr/src KERNCONF=GENERIC-NODEBUG -j$(sysctl -n hw.ncpu) buildkernel buildworld",
+        "make -C /usr/src KERNCONF=GENERIC-NODEBUG installkernel installworld"
     ]
     client = util.create_client(ip_address)
-    util.execute_commands(client, commands_build)
+    util.execute_commands(client, commands_update)
     client.close()
     util.reboot_device(device)
     util.wait_till_active(device)
