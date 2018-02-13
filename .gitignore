@@ -3,4 +3,5 @@ tags
 **/.*swp
 benchmark-automation/*
 cache
+report* 
 
