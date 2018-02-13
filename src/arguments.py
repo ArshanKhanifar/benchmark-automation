@@ -18,6 +18,10 @@ mainParser.add_argument('--skip-update',
                     action='store_true',
                     help='skips the kernel update')
 
+mainParser.add_argument('--skip-benchmark',
+                    action='store_true',
+                    help='does not perform benchmarking, used for setting up a server for other purposes')
+
 mainParser.add_argument('--use-last',
                     action='store_true',
                     help='uses the last device id used, (stored in cache/deviceid)')
@@ -32,6 +36,11 @@ mainParser.add_argument('-s', '-spotmarket',
 mainParser.add_argument('--device-id',
                     action='store',
                     help='when not creating a new device, use the device id to run the tests on an existing device') 
+
+mainParser.add_argument('--benchmarks-file',
+                    action='store',
+                    default='benchmarks.json',
+                    help='relative address to the json file containing benchmark commands') 
 
 mainParser.add_argument('--create-new',
                     action='store_true',

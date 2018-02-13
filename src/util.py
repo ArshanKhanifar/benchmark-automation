@@ -8,17 +8,21 @@ manager = packet.Manager(auth_token="PDDno4gUFgZqMpE97nTKdvc1asVjqUyS")
 project = manager.list_projects()[0]
 
 def reboot_device(device):
-    print('rebooting the device')
+    print('Rebooting the device.')
     device.reboot()
     # sleep for 1 seconds so wait_till_active doesn't falsely get device as active
     time.sleep(1.0)
+    wait_till_active(device)
 
+#cache the currently used device
 def write_last(device_id):
     if not os.path.isdir('cache'):
         os.mkdir('cache')
     fh = open('cache/deviceid', 'w')
     fh.write(device_id)
     fh.close()
+
+# get cached device
 def read_last():
     if not os.path.isfile('cache/deviceid'):
         return None
@@ -49,7 +53,7 @@ def get_testing_device(args):
     if args.use_last:
         device_id = read_last()
         if device_id is None:
-            print('no last device id found')
+            print('No cached device id\'s found')
             sys.exit()
         else:
             return manager.get_device(device_id)
@@ -66,23 +70,31 @@ def get_testing_device(args):
                      operating_system=args.os,
                      spot_instance=args.s,
                      spot_price_max=args.spot_price_max)
+
     else:
         device = manager.get_device(args.device_id)
     write_last(device.id)
     return device
 
+# executes command in the client environment
+# if command is a string, then executes it
+# if command is specified as an array: ['command':string , 'surpress': boolean]
+# then it will surpress the output of the command if boolean is set to true
+
 def execute_command(client, command):
     ignore = False
-    # if passed in as an array, then parse the array
     if isinstance(command, list):
        ignore = command[1]
        command = command[0]
     print('#: ' + command)
     stdin, stdout, stderr = client.exec_command(command)
+    # read the stdin in chunks (used for tasks with big outputs)
+    # such as buildkernel and buildworld
     while True:
         line = stdout.readline()
-        if line != '' and not ignore:
-            print line,
+        if line != '':
+            if not ignore:
+                print line,
         else:
             break
     errstuff = stderr.readlines()
@@ -102,7 +114,7 @@ def create_client(ip_address):
         client.connect(ip_address, 
                        username='root',
                        passphrase='Physics92',
-                       banner_timeout=5)
+                       timeout=5)
     except:
         print("ssh couldn't connect, trying again...")
         time.sleep(1)
