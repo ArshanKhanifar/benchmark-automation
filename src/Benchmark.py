@@ -13,8 +13,7 @@ import ntpath
 class Benchmark(object):
     def __init__(self, 
             name, 
-            paths, 
-            commands, 
+            commands=[], 
             setup_method=None, 
             setup=[],
             needs_reboot=False):
@@ -22,7 +21,6 @@ class Benchmark(object):
         self.setup = setup # all the setup commands go here
         self.commands = commands # main commands
         self.setup_method = setup_method # gets called before run
-        self.paths = paths
         self.needs_reboot=needs_reboot
 
     def run(self, client, device):
@@ -36,12 +34,37 @@ class Benchmark(object):
         util.execute_commands(client, self.commands)
 
 class BenchmarkRunner(object):
-    def __init__(self, client, device):
+    def __init__(self,
+            client,
+            device,
+            command_once = [],
+            common_setup = [],
+            common_commands = [],
+            sendfiles=[]
+           ):
         self.client = client
         self.device = device
         self.benchmarks = {} 
         self.device_id = device.id
-    
+        self.command_once = command_once
+        self.common_setup = common_setup
+        self.common_commands = common_commands
+
+        sftp_client = self.client.open_sftp()
+        # creating input and output directories, deletes them if they exist
+        if util.dir_exists(sftp_client, 'output'):
+            util.rm_dir_recursive(client, 'output')
+        sftp_client.mkdir('output')
+        if util.dir_exists(sftp_client, 'input'):
+            util.rm_dir_recursive(client, 'input')
+        sftp_client.mkdir('input')
+
+        # sending input files
+        for filename in sendfiles:
+            sftp_client.put(filename, '/root/input/' + filename)
+        # executing the commands that are meant to be run only once
+        util.execute_commands(client, self.command_once)
+
     def add_benchmark(self, benchmark):
         self.benchmarks[benchmark.name] = benchmark
     
@@ -54,7 +77,11 @@ class BenchmarkRunner(object):
         #TODO: implement run_all
     
     def run_benchmark(self, benchmark, foldername):
+        # adding the common setup and commands 
+        benchmark.setup = self.common_setup + benchmark.setup
+        benchmark.commands = self.common_commands + benchmark.commands
         try:
+            # running the specific commands to each benchmark
             benchmark.run(self.client, self.device)
         except Exception as e:
             print(e)
@@ -62,14 +89,22 @@ class BenchmarkRunner(object):
             sys.exit()
         if benchmark.needs_reboot:
             self.client = util.create_client(util.get_device_ip(self.device))
-
+        
         sftp_client = self.client.open_sftp()
-        output_path = foldername + '/' + benchmark.name
+        # where to store the report
+        output_path = foldername + '/' + benchmark.name 
+        output_file = output_path + '/output.tar' 
         os.mkdir(output_path)
-        for path in benchmark.paths:
-            try:
-                sftp_client.get(path, output_path + '/' + ntpath.basename(path))
-            except Exception as e:
-                print(e)
-                print('copying %s failed'%s)
+
+        # compressing output files
+        util.execute_commands(self.client, [
+                ["tar -cf output.tar output", True]
+            ])
+
+        try: 
+            sftp_client.get('output.tar', output_file)
+        except Exception as e:
+            print(e)
+            print('couldn\'t get output.tar')
+
 

@@ -22,7 +22,7 @@
 				"echo 'vm.pmap.pti=0' >> /boot/loader.conf",
 				"echo 'vm.pmap.pcid_enabled=0' >> /boot/loader.conf"
 			],
-			"needs_reboot": true
+			"needs_reboot": false 
 		},
 		{
 			"name": "pti-0-pcid-1",
@@ -30,7 +30,7 @@
 				"echo 'vm.pmap.pti=0' >> /boot/loader.conf",
 				"echo 'vm.pmap.pcid_enabled=1' >> /boot/loader.conf"
 			],
-			"needs_reboot": true
+			"needs_reboot": false 
 		},
 		{
 			"name": "pti-1-pcid-1",
@@ -38,7 +38,7 @@
 				"echo 'vm.pmap.pti=1' >> /boot/loader.conf",
 				"echo 'vm.pmap.pcid_enabled=1' >> /boot/loader.conf"
 			],
-			"needs_reboot": true
+			"needs_reboot": false  
 		},
 		{
 			"name": "pti-1-pcid-0",
@@ -46,7 +46,7 @@
 				"echo 'vm.pmap.pti=1' >> /boot/loader.conf",
 				"echo 'vm.pmap.pcid_enabled=0' >> /boot/loader.conf"
 			],
-			"needs_reboot": true
+			"needs_reboot": false
 		}
 	]
 }

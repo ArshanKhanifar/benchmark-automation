@@ -1,0 +1,32 @@
+{
+	"sendfiles": [
+		"MEF406F1_0B000025.bin"
+	],
+	"command_once": [
+		"kldload cpuctl",
+		"for x in $(jot $(sysctl -n hw.ncpu) 0); do cpucontrol -u -d infiles/ /dev/cpuctl$x; done",
+		"cpucontrol -e /dev/cpuctl10",
+		"x86info -a | grep 'Micro'",
+		"sysctl hw.ibrs_active"
+	],
+	"common_commands": [
+		"echo 'TEST: common-command'"
+	],
+	"benchmarks": [
+		{
+			"name": "ibrs-on",
+			"setup": [
+				"echo 'TEST: benchmark 1 setup'"
+			],
+			"needs_reboot": false 
+		},
+		{
+			"name": "ibrs-off",
+			"setup": [
+				"echo 'TEST: benchmark 1 setup'"
+			],
+			"needs_reboot": false 
+		}
+	]
+}
+

@@ -7,8 +7,16 @@ from paramiko.client import SSHClient,AutoAddPolicy
 manager = packet.Manager(auth_token="PDDno4gUFgZqMpE97nTKdvc1asVjqUyS")
 project = manager.list_projects()[0]
 
+def dir_exists(sftp_client, directory):
+    return directory in sftp_client.listdir()
+
+def rm_dir_recursive(client, directory):
+    execute_command(client, ["rm -rf %s"%directory, True])
+
 def reboot_device(device):
     print('Rebooting the device.')
+    print('ERROR! SHOULDNT HIT HERE!')
+    sys.exit()
     device.reboot()
     # sleep for 1 seconds so wait_till_active doesn't falsely get device as active
     time.sleep(1.0)
@@ -84,8 +92,8 @@ def get_testing_device(args):
 def execute_command(client, command):
     ignore = False
     if isinstance(command, list):
-       ignore = command[1]
-       command = command[0]
+        ignore = command[1]
+        command = command[0]
     print('#: ' + command)
     stdin, stdout, stderr = client.exec_command(command)
     # read the stdin in chunks (used for tasks with big outputs)

@@ -5,6 +5,7 @@ import src.util as util
 import json
 import time
 import sys
+import copy
 from src.Benchmark import Benchmark, BenchmarkRunner
 from DeviceSetup import DeviceSetup
 
@@ -36,17 +37,20 @@ if args.skip_benchmark:
     print("skipping benchmark.")
     sys.exit()
 
-benchmarks = json.load(open(args.benchmarks_file))
+configDict = json.load(open(args.benchmarks_file))
 client = util.create_client(ip_address)
-benchmark_runner = BenchmarkRunner(client, device)
+benchmarkRunnerDict = copy.deepcopy(configDict)
+benchmarkRunnerDict.pop('benchmarks')
+benchmark_runner = BenchmarkRunner(
+                        client, 
+                        device,
+                        **benchmarkRunnerDict)
+
 bNames= []
-for benchmark in benchmarks:
-    bObj = Benchmark(name=benchmark['name'],
-            setup=benchmark['setup'],
-            paths=benchmark['paths'],
-            needs_reboot=benchmark['needs_reboot'],
-            commands=benchmark['commands'])
-    benchmark_runner.add_benchmark(bObj)
+
+for benchmark in configDict['benchmarks']:
+    bDict = Benchmark(**benchmark)
+    benchmark_runner.add_benchmark(bDict)
     bNames = bNames + [benchmark['name']]
 
 benchmark_runner.run_benchmarks(names=bNames)
