@@ -23,18 +23,22 @@ device_setup = DeviceSetup(device)
 
 # setup: installs packages, sets environment configs
 if args.skip_setup:
-    print("skipping setup.")
+    print("Skipping setup.")
 else:
-    device_setup.setup()
+    if hasattr(args, 'custom_setup'):
+        config = json.load(open(args.custom_setup))
+        device_setup.setup(**config)
+    else:
+        device_setup.setup()
 
 # update: builds and updates the kernel 
 if args.skip_update:
-    print("skipping update.")
+    print("Skipping update.")
 else:
     device_setup.update()
 
 if args.skip_benchmark:
-    print("skipping benchmark.")
+    print("Skipping benchmark.")
     sys.exit()
 
 configDict = json.load(open(args.benchmarks_file))
@@ -60,18 +64,3 @@ print("BUENO")
 
 sys.exit()
 
-client = util.create_client(ip_address)
-sftp_client = client.open_sftp()
-sftp_client.put('binaries.tar', '/root/binaries.tar')
-
-util.execute_commands(client, [
-        "kldload cpuctl",
-        #"tar -xf binaries.tar",
-        "for x in $("
-                      "jot $("
-                               "expr $(sysctl -n hw.ncpu) - 1"
-                           ") 0"
-                  ");"
-                      "do cpucontrol -u -d ./binaries /dev/cpuctl$x;"
-                      "done"
-    ])

@@ -1,0 +1,6 @@
+{
+	"revision": "stable/11",
+	"patches": [
+		"https://kib.kiev.ua/kib/amd64_meltdown_stable_11.2.patch"
+	]
+}

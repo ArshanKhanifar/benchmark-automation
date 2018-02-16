@@ -15,8 +15,6 @@ def rm_dir_recursive(client, directory):
 
 def reboot_device(device):
     print('Rebooting the device.')
-    print('ERROR! SHOULDNT HIT HERE!')
-    sys.exit()
     device.reboot()
     # sleep for 1 seconds so wait_till_active doesn't falsely get device as active
     time.sleep(1.0)

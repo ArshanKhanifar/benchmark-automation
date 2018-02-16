@@ -1,19 +1,21 @@
 {
-	"once": [
-		"make -C /usr/src/tools/tools/syscall_timing"
+	"command_once": [
+		"make -C /usr/src/tools/tools/syscall_timing",
+		"make install -C /usr/src/tools/tools/syscall_timing"
 	],
-	"common-setup": [
-		"kldload cpuctl",
+	"common_setup": [
 		"sed -i '.bak' '/.*pti=[01]$/d' /boot/loader.conf",
 		"sed -i '.bak' '/.*pcid_enabled=[01]$/d' /boot/loader.conf"
 	],
-	"common-commands": [
-		"sysctl vm.pmap.pti",
-		"sysctl vm.pmap.pcid",
-		"sysctl vm.pmap > pmap.log",
-		"uname -a > uname.log",
-		"x86info -a > x86info.log",
-		"/usr/obj/usr/src/amd64.amd64/tools/tools/syscall_timing/syscall_timing getppid > getppid.log"
+	"common_commands": [
+		"kldload cpuctl",
+		"cpucontrol -e /dev/cpuctl10",
+		"sysctl vm.pmap > output/pmap.log",
+		"uname -a > output/uname.log",
+		"kenv | grep \"^smbios\\.\" > output/kenv.log",
+		"dmesg > output/dmesg.log",
+		"x86info -a > output/x86info.log",
+		"/usr/obj/usr/src/amd64.amd64/tools/tools/syscall_timing/syscall_timing getppid > output/getppid.log"
 	],
 	"benchmarks": [
 		{
@@ -22,7 +24,7 @@
 				"echo 'vm.pmap.pti=0' >> /boot/loader.conf",
 				"echo 'vm.pmap.pcid_enabled=0' >> /boot/loader.conf"
 			],
-			"needs_reboot": false 
+			"needs_reboot": true
 		},
 		{
 			"name": "pti-0-pcid-1",
@@ -30,7 +32,7 @@
 				"echo 'vm.pmap.pti=0' >> /boot/loader.conf",
 				"echo 'vm.pmap.pcid_enabled=1' >> /boot/loader.conf"
 			],
-			"needs_reboot": false 
+			"needs_reboot": true 
 		},
 		{
 			"name": "pti-1-pcid-1",
@@ -38,7 +40,7 @@
 				"echo 'vm.pmap.pti=1' >> /boot/loader.conf",
 				"echo 'vm.pmap.pcid_enabled=1' >> /boot/loader.conf"
 			],
-			"needs_reboot": false  
+			"needs_reboot": true
 		},
 		{
 			"name": "pti-1-pcid-0",
@@ -46,7 +48,7 @@
 				"echo 'vm.pmap.pti=1' >> /boot/loader.conf",
 				"echo 'vm.pmap.pcid_enabled=0' >> /boot/loader.conf"
 			],
-			"needs_reboot": false
+			"needs_reboot": true
 		}
 	]
 }

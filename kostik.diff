@@ -1,0 +1,4157 @@
+Index: sys/amd64/amd64/apic_vector.S
+===================================================================
+--- sys/amd64/amd64/apic_vector.S	(revision 329241)
++++ sys/amd64/amd64/apic_vector.S	(working copy)
+@@ -2,7 +2,13 @@
+  * Copyright (c) 1989, 1990 William F. Jolitz.
+  * Copyright (c) 1990 The Regents of the University of California.
+  * All rights reserved.
++ * Copyright (c) 2014-2018 The FreeBSD Foundation
++ * All rights reserved.
+  *
++ * Portions of this software were developed by
++ * Konstantin Belousov <kib@FreeBSD.org> under sponsorship from
++ * the FreeBSD Foundation.
++ *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+  * are met:
+@@ -38,12 +44,12 @@
+ 
+ #include "opt_smp.h"
+ 
++#include "assym.s"
++
+ #include <machine/asmacros.h>
+ #include <machine/specialreg.h>
+ #include <x86/apicreg.h>
+ 
+-#include "assym.s"
+-
+ #ifdef SMP
+ #define LK	lock ;
+ #else
+@@ -73,30 +79,28 @@ as_lapic_eoi:
+  * translates that into a vector, and passes the vector to the
+  * lapic_handle_intr() function.
+  */
+-#define	ISR_VEC(index, vec_name)					\
+-	.text ;								\
+-	SUPERALIGN_TEXT ;						\
+-IDTVEC(vec_name) ;							\
+-	PUSH_FRAME ;							\
+-	FAKE_MCOUNT(TF_RIP(%rsp)) ;					\
+-	cmpl	$0,x2apic_mode ;					\
+-	je	1f ;							\
+-	movl	$(MSR_APIC_ISR0 + index),%ecx ;				\
+-	rdmsr ;								\
+-	jmp	2f ;							\
+-1: ;									\
+-	movq	lapic_map, %rdx ;	/* pointer to local APIC */	\
+-	movl	LA_ISR + 16 * (index)(%rdx), %eax ;	/* load ISR */	\
+-2: ;									\
+-	bsrl	%eax, %eax ;	/* index of highest set bit in ISR */	\
+-	jz	3f ;							\
+-	addl	$(32 * index),%eax ;					\
+-	movq	%rsp, %rsi	;                                       \
+-	movl	%eax, %edi ;	/* pass the IRQ */			\
+-	call	lapic_handle_intr ;					\
+-3: ;									\
+-	MEXITCOUNT ;							\
++	.macro	ISR_VEC	index, vec_name
++	INTR_HANDLER	\vec_name
++	FAKE_MCOUNT(TF_RIP(%rsp))
++	cmpl	$0,x2apic_mode
++	je	1f
++	movl	$(MSR_APIC_ISR0 + \index),%ecx
++	rdmsr
++	jmp	2f
++1:
++	movq	lapic_map, %rdx		/* pointer to local APIC */
++	movl	LA_ISR + 16 * (\index)(%rdx), %eax	/* load ISR */
++2:
++	bsrl	%eax, %eax	/* index of highest set bit in ISR */
++	jz	3f
++	addl	$(32 * \index),%eax
++	movq	%rsp, %rsi
++	movl	%eax, %edi	/* pass the IRQ */
++	call	lapic_handle_intr
++3:
++	MEXITCOUNT
+ 	jmp	doreti
++	.endm
+ 
+ /*
+  * Handle "spurious INTerrupts".
+@@ -108,26 +112,21 @@ as_lapic_eoi:
+ 	.text
+ 	SUPERALIGN_TEXT
+ IDTVEC(spuriousint)
+-
+ 	/* No EOI cycle used here */
+-
+ 	jmp	doreti_iret
+ 
+-	ISR_VEC(1, apic_isr1)
+-	ISR_VEC(2, apic_isr2)
+-	ISR_VEC(3, apic_isr3)
+-	ISR_VEC(4, apic_isr4)
+-	ISR_VEC(5, apic_isr5)
+-	ISR_VEC(6, apic_isr6)
+-	ISR_VEC(7, apic_isr7)
++	ISR_VEC	1, apic_isr1
++	ISR_VEC	2, apic_isr2
++	ISR_VEC	3, apic_isr3
++	ISR_VEC	4, apic_isr4
++	ISR_VEC	5, apic_isr5
++	ISR_VEC	6, apic_isr6
++	ISR_VEC	7, apic_isr7
+ 
+ /*
+  * Local APIC periodic timer handler.
+  */
+-	.text
+-	SUPERALIGN_TEXT
+-IDTVEC(timerint)
+-	PUSH_FRAME
++	INTR_HANDLER	timerint
+ 	FAKE_MCOUNT(TF_RIP(%rsp))
+ 	movq	%rsp, %rdi
+ 	call	lapic_handle_timer
+@@ -137,10 +136,7 @@ IDTVEC(spuriousint)
+ /*
+  * Local APIC CMCI handler.
+  */
+-	.text
+-	SUPERALIGN_TEXT
+-IDTVEC(cmcint)
+-	PUSH_FRAME
++	INTR_HANDLER cmcint
+ 	FAKE_MCOUNT(TF_RIP(%rsp))
+ 	call	lapic_handle_cmc
+ 	MEXITCOUNT
+@@ -149,10 +145,7 @@ IDTVEC(spuriousint)
+ /*
+  * Local APIC error interrupt handler.
+  */
+-	.text
+-	SUPERALIGN_TEXT
+-IDTVEC(errorint)
+-	PUSH_FRAME
++	INTR_HANDLER errorint
+ 	FAKE_MCOUNT(TF_RIP(%rsp))
+ 	call	lapic_handle_error
+ 	MEXITCOUNT
+@@ -163,10 +156,7 @@ IDTVEC(spuriousint)
+  * Xen event channel upcall interrupt handler.
+  * Only used when the hypervisor supports direct vector callbacks.
+  */
+-	.text
+-	SUPERALIGN_TEXT
+-IDTVEC(xen_intr_upcall)
+-	PUSH_FRAME
++	INTR_HANDLER xen_intr_upcall
+ 	FAKE_MCOUNT(TF_RIP(%rsp))
+ 	movq	%rsp, %rdi
+ 	call	xen_intr_handle_upcall
+@@ -183,59 +173,59 @@ IDTVEC(spuriousint)
+ 	SUPERALIGN_TEXT
+ invltlb_ret:
+ 	call	as_lapic_eoi
+-	POP_FRAME
+-	jmp	doreti_iret
++	jmp	ld_regs
+ 
+ 	SUPERALIGN_TEXT
+-IDTVEC(invltlb)
+-	PUSH_FRAME
+-
++	INTR_HANDLER invltlb
+ 	call	invltlb_handler
+ 	jmp	invltlb_ret
+ 
+-IDTVEC(invltlb_pcid)
+-	PUSH_FRAME
+-
++	INTR_HANDLER invltlb_pcid
+ 	call	invltlb_pcid_handler
+ 	jmp	invltlb_ret
+ 
+-IDTVEC(invltlb_invpcid)
+-	PUSH_FRAME
+-
++	INTR_HANDLER invltlb_invpcid_nopti
+ 	call	invltlb_invpcid_handler
+ 	jmp	invltlb_ret
+ 
++	INTR_HANDLER invltlb_invpcid_pti
++	call	invltlb_invpcid_pti_handler
++	jmp	invltlb_ret
++
+ /*
+  * Single page TLB shootdown
+  */
+-	.text
++	INTR_HANDLER invlpg
++	call	invlpg_handler
++	jmp	invltlb_ret
+ 
+-	SUPERALIGN_TEXT
+-IDTVEC(invlpg)
+-	PUSH_FRAME
++	INTR_HANDLER invlpg_invpcid
++	call	invlpg_invpcid_handler
++	jmp	invltlb_ret
+ 
+-	call	invlpg_handler
++	INTR_HANDLER invlpg_pcid
++	call	invlpg_pcid_handler
+ 	jmp	invltlb_ret
+ 
+ /*
+  * Page range TLB shootdown.
+  */
+-	.text
+-	SUPERALIGN_TEXT
+-IDTVEC(invlrng)
+-	PUSH_FRAME
+-
++	INTR_HANDLER invlrng
+ 	call	invlrng_handler
+ 	jmp	invltlb_ret
+ 
++	INTR_HANDLER invlrng_invpcid
++	call	invlrng_invpcid_handler
++	jmp	invltlb_ret
++
++	INTR_HANDLER invlrng_pcid
++	call	invlrng_pcid_handler
++	jmp	invltlb_ret
++
+ /*
+  * Invalidate cache.
+  */
+-	.text
+-	SUPERALIGN_TEXT
+-IDTVEC(invlcache)
+-	PUSH_FRAME
+-
++	INTR_HANDLER invlcache
+ 	call	invlcache_handler
+ 	jmp	invltlb_ret
+ 
+@@ -242,15 +232,9 @@ invltlb_ret:
+ /*
+  * Handler for IPIs sent via the per-cpu IPI bitmap.
+  */
+-	.text
+-	SUPERALIGN_TEXT
+-IDTVEC(ipi_intr_bitmap_handler)		
+-	PUSH_FRAME
+-
++	INTR_HANDLER ipi_intr_bitmap_handler
+ 	call	as_lapic_eoi
+-	
+ 	FAKE_MCOUNT(TF_RIP(%rsp))
+-
+ 	call	ipi_bitmap_handler
+ 	MEXITCOUNT
+ 	jmp	doreti
+@@ -258,13 +242,8 @@ invltlb_ret:
+ /*
+  * Executed by a CPU when it receives an IPI_STOP from another CPU.
+  */
+-	.text
+-	SUPERALIGN_TEXT
+-IDTVEC(cpustop)
+-	PUSH_FRAME
+-
++	INTR_HANDLER cpustop
+ 	call	as_lapic_eoi
+-
+ 	call	cpustop_handler
+ 	jmp	doreti
+ 
+@@ -271,11 +250,7 @@ invltlb_ret:
+ /*
+  * Executed by a CPU when it receives an IPI_SUSPEND from another CPU.
+  */
+-	.text
+-	SUPERALIGN_TEXT
+-IDTVEC(cpususpend)
+-	PUSH_FRAME
+-
++	INTR_HANDLER cpususpend
+ 	call	cpususpend_handler
+ 	call	as_lapic_eoi
+ 	jmp	doreti
+@@ -285,10 +260,7 @@ invltlb_ret:
+  *
+  * - Calls the generic rendezvous action function.
+  */
+-	.text
+-	SUPERALIGN_TEXT
+-IDTVEC(rendezvous)
+-	PUSH_FRAME
++	INTR_HANDLER rendezvous
+ #ifdef COUNT_IPIS
+ 	movl	PCPU(CPUID), %eax
+ 	movq	ipi_rendezvous_counts(,%rax,8), %rax
+@@ -328,4 +300,8 @@ IDTVEC(justreturn)
+ 	popq	%rax
+ 	jmp	doreti_iret
+ 
++	INTR_HANDLER	justreturn1
++	call	as_lapic_eoi
++	jmp	doreti
++
+ #endif /* SMP */
+Index: sys/amd64/amd64/atpic_vector.S
+===================================================================
+--- sys/amd64/amd64/atpic_vector.S	(revision 329241)
++++ sys/amd64/amd64/atpic_vector.S	(working copy)
+@@ -36,38 +36,35 @@
+  * master and slave interrupt controllers.
+  */
+ 
++#include "assym.s"
+ #include <machine/asmacros.h>
+ 
+-#include "assym.s"
+-
+ /*
+  * Macros for interrupt entry, call to handler, and exit.
+  */
+-#define	INTR(irq_num, vec_name) \
+-	.text ;								\
+-	SUPERALIGN_TEXT ;						\
+-IDTVEC(vec_name) ;							\
+-	PUSH_FRAME ;							\
+-	FAKE_MCOUNT(TF_RIP(%rsp)) ;					\
+-	movq	%rsp, %rsi	;                                       \
+-	movl	$irq_num, %edi; 	/* pass the IRQ */		\
+-	call	atpic_handle_intr ;					\
+-	MEXITCOUNT ;							\
++	.macro	INTR	irq_num, vec_name
++	INTR_HANDLER	\vec_name
++	FAKE_MCOUNT(TF_RIP(%rsp))
++	movq	%rsp, %rsi
++	movl	$\irq_num, %edi	 	/* pass the IRQ */
++	call	atpic_handle_intr
++	MEXITCOUNT
+ 	jmp	doreti
++	.endm
+ 
+-	INTR(0, atpic_intr0)
+-	INTR(1, atpic_intr1)
+-	INTR(2, atpic_intr2)
+-	INTR(3, atpic_intr3)
+-	INTR(4, atpic_intr4)
+-	INTR(5, atpic_intr5)
+-	INTR(6, atpic_intr6)
+-	INTR(7, atpic_intr7)
+-	INTR(8, atpic_intr8)
+-	INTR(9, atpic_intr9)
+-	INTR(10, atpic_intr10)
+-	INTR(11, atpic_intr11)
+-	INTR(12, atpic_intr12)
+-	INTR(13, atpic_intr13)
+-	INTR(14, atpic_intr14)
+-	INTR(15, atpic_intr15)
++	INTR	0, atpic_intr0
++	INTR	1, atpic_intr1
++	INTR	2, atpic_intr2
++	INTR	3, atpic_intr3
++	INTR	4, atpic_intr4
++	INTR	5, atpic_intr5
++	INTR	6, atpic_intr6
++	INTR	7, atpic_intr7
++	INTR	8, atpic_intr8
++	INTR	9, atpic_intr9
++	INTR	10, atpic_intr10
++	INTR	11, atpic_intr11
++	INTR	12, atpic_intr12
++	INTR	13, atpic_intr13
++	INTR	14, atpic_intr14
++	INTR	15, atpic_intr15
+Index: sys/amd64/amd64/cpu_switch.S
+===================================================================
+--- sys/amd64/amd64/cpu_switch.S	(revision 329241)
++++ sys/amd64/amd64/cpu_switch.S	(working copy)
+@@ -215,8 +215,10 @@ done_tss:
+ 	movq	%r8,PCPU(RSP0)
+ 	movq	%r8,PCPU(CURPCB)
+ 	/* Update the TSS_RSP0 pointer for the next interrupt */
++	cmpb	$0,pti(%rip)
++	jne	1f
+ 	movq	%r8,TSS_RSP0(%rdx)
+-	movq	%r12,PCPU(CURTHREAD)		/* into next thread */
++1:	movq	%r12,PCPU(CURTHREAD)		/* into next thread */
+ 
+ 	/* Test if debug registers should be restored. */
+ 	testl	$PCB_DBREGS,PCB_FLAGS(%r8)
+@@ -293,7 +295,12 @@ do_tss:	movq	%rdx,PCPU(TSSP)
+ 	shrq	$8,%rcx
+ 	movl	%ecx,8(%rax)
+ 	movb	$0x89,5(%rax)	/* unset busy */
+-	movl	$TSSSEL,%eax
++	cmpb	$0,pti(%rip)
++	je	1f
++	movq	PCPU(PRVSPACE),%rax
++	addq	$PC_PTI_STACK+PC_PTI_STACK_SZ*8,%rax
++	movq	%rax,TSS_RSP0(%rdx)
++1:	movl	$TSSSEL,%eax
+ 	ltr	%ax
+ 	jmp	done_tss
+ 
+Index: sys/amd64/amd64/db_trace.c
+===================================================================
+--- sys/amd64/amd64/db_trace.c	(revision 329241)
++++ sys/amd64/amd64/db_trace.c	(working copy)
+@@ -200,6 +200,7 @@ db_nextframe(struct amd64_frame **fp, db_addr_t *i
+ 	if (name != NULL) {
+ 		if (strcmp(name, "calltrap") == 0 ||
+ 		    strcmp(name, "fork_trampoline") == 0 ||
++		    strcmp(name, "mchk_calltrap") == 0 ||
+ 		    strcmp(name, "nmi_calltrap") == 0 ||
+ 		    strcmp(name, "Xdblfault") == 0)
+ 			frame_type = TRAP;
+Index: sys/amd64/amd64/exception.S
+===================================================================
+--- sys/amd64/amd64/exception.S	(revision 329241)
++++ sys/amd64/amd64/exception.S	(working copy)
+@@ -1,12 +1,16 @@
+ /*-
+  * Copyright (c) 1989, 1990 William F. Jolitz.
+  * Copyright (c) 1990 The Regents of the University of California.
+- * Copyright (c) 2007 The FreeBSD Foundation
++ * Copyright (c) 2007-2018 The FreeBSD Foundation
+  * All rights reserved.
+  *
+  * Portions of this software were developed by A. Joseph Koshy under
+  * sponsorship from the FreeBSD Foundation and Google, Inc.
+  *
++ * Portions of this software were developed by
++ * Konstantin Belousov <kib@FreeBSD.org> under sponsorship from
++ * the FreeBSD Foundation.
++ *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+  * are met:
+@@ -38,13 +42,13 @@
+ #include "opt_compat.h"
+ #include "opt_hwpmc_hooks.h"
+ 
++#include "assym.s"
++
+ #include <machine/asmacros.h>
+ #include <machine/psl.h>
+ #include <machine/trap.h>
+ #include <machine/specialreg.h>
+ 
+-#include "assym.s"
+-
+ #ifdef KDTRACE_HOOKS
+ 	.bss
+ 	.globl	dtrace_invop_jump_addr
+@@ -100,69 +104,62 @@ dtrace_invop_calltrap_addr:
+ MCOUNT_LABEL(user)
+ MCOUNT_LABEL(btrap)
+ 
+-/* Traps that we leave interrupts disabled for.. */
+-#define	TRAP_NOEN(a)	\
+-	subq $TF_RIP,%rsp; \
+-	movl $(a),TF_TRAPNO(%rsp) ; \
+-	movq $0,TF_ADDR(%rsp) ; \
+-	movq $0,TF_ERR(%rsp) ; \
++/* Traps that we leave interrupts disabled for. */
++	.macro	TRAP_NOEN	l, trapno
++	PTI_ENTRY	\l,X\l
++	.globl	X\l
++	.type	X\l,@function
++X\l:	subq $TF_RIP,%rsp
++	movl $\trapno,TF_TRAPNO(%rsp)
++	movq $0,TF_ADDR(%rsp)
++	movq $0,TF_ERR(%rsp)
+ 	jmp alltraps_noen
+-IDTVEC(dbg)
+-	TRAP_NOEN(T_TRCTRAP)
+-IDTVEC(bpt)
+-	TRAP_NOEN(T_BPTFLT)
++	.endm
++
++	TRAP_NOEN	dbg, T_TRCTRAP
++	TRAP_NOEN	bpt, T_BPTFLT
+ #ifdef KDTRACE_HOOKS
+-IDTVEC(dtrace_ret)
+-	TRAP_NOEN(T_DTRACE_RET)
++	TRAP_NOEN	dtrace_ret, T_DTRACE_RET
+ #endif
+ 
+ /* Regular traps; The cpu does not supply tf_err for these. */
+-#define	TRAP(a)	 \
+-	subq $TF_RIP,%rsp; \
+-	movl $(a),TF_TRAPNO(%rsp) ; \
+-	movq $0,TF_ADDR(%rsp) ; \
+-	movq $0,TF_ERR(%rsp) ; \
++	.macro	TRAP	l, trapno
++	PTI_ENTRY	\l,X\l
++	.globl	X\l
++	.type	X\l,@function
++X\l:
++	subq $TF_RIP,%rsp
++	movl $\trapno,TF_TRAPNO(%rsp)
++	movq $0,TF_ADDR(%rsp)
++	movq $0,TF_ERR(%rsp)
+ 	jmp alltraps
+-IDTVEC(div)
+-	TRAP(T_DIVIDE)
+-IDTVEC(ofl)
+-	TRAP(T_OFLOW)
+-IDTVEC(bnd)
+-	TRAP(T_BOUND)
+-IDTVEC(ill)
+-	TRAP(T_PRIVINFLT)
+-IDTVEC(dna)
+-	TRAP(T_DNA)
+-IDTVEC(fpusegm)
+-	TRAP(T_FPOPFLT)
+-IDTVEC(mchk)
+-	TRAP(T_MCHK)
+-IDTVEC(rsvd)
+-	TRAP(T_RESERVED)
+-IDTVEC(fpu)
+-	TRAP(T_ARITHTRAP)
+-IDTVEC(xmm)
+-	TRAP(T_XMMFLT)
++	.endm
+ 
+-/* This group of traps have tf_err already pushed by the cpu */
+-#define	TRAP_ERR(a)	\
+-	subq $TF_ERR,%rsp; \
+-	movl $(a),TF_TRAPNO(%rsp) ; \
+-	movq $0,TF_ADDR(%rsp) ; \
++	TRAP	div, T_DIVIDE
++	TRAP	ofl, T_OFLOW
++	TRAP	bnd, T_BOUND
++	TRAP	ill, T_PRIVINFLT
++	TRAP	dna, T_DNA
++	TRAP	fpusegm, T_FPOPFLT
++	TRAP	rsvd, T_RESERVED
++	TRAP	fpu, T_ARITHTRAP
++	TRAP	xmm, T_XMMFLT
++
++/* This group of traps have tf_err already pushed by the cpu. */
++	.macro	TRAP_ERR	l, trapno
++	PTI_ENTRY	\l,X\l,has_err=1
++	.globl	X\l
++	.type	X\l,@function
++X\l:
++	subq $TF_ERR,%rsp
++	movl $\trapno,TF_TRAPNO(%rsp)
++	movq $0,TF_ADDR(%rsp)
+ 	jmp alltraps
+-IDTVEC(tss)
+-	TRAP_ERR(T_TSSFLT)
+-IDTVEC(missing)
+-	subq	$TF_ERR,%rsp
+-	movl	$T_SEGNPFLT,TF_TRAPNO(%rsp)
+-	jmp	prot_addrf
+-IDTVEC(stk)
+-	subq	$TF_ERR,%rsp
+-	movl	$T_STKFLT,TF_TRAPNO(%rsp)
+-	jmp	prot_addrf
+-IDTVEC(align)
+-	TRAP_ERR(T_ALIGNFLT)
++	.endm
+ 
++	TRAP_ERR	tss, T_TSSFLT
++	TRAP_ERR	align, T_ALIGNFLT
++
+ 	/*
+ 	 * alltraps entry point.  Use swapgs if this is the first time in the
+ 	 * kernel from userland.  Reenable interrupts if they were enabled
+@@ -174,24 +171,22 @@ MCOUNT_LABEL(btrap)
+ alltraps:
+ 	movq	%rdi,TF_RDI(%rsp)
+ 	testb	$SEL_RPL_MASK,TF_CS(%rsp) /* Did we come from kernel? */
+-	jz	alltraps_testi		/* already running with kernel GS.base */
++	jz	1f		/* already running with kernel GS.base */
+ 	swapgs
+ 	movq	PCPU(CURPCB),%rdi
+ 	andl	$~PCB_FULL_IRET,PCB_FLAGS(%rdi)
+-	movw	%fs,TF_FS(%rsp)
+-	movw	%gs,TF_GS(%rsp)
+-	movw	%es,TF_ES(%rsp)
+-	movw	%ds,TF_DS(%rsp)
+-alltraps_testi:
+-	testl	$PSL_I,TF_RFLAGS(%rsp)
+-	jz	alltraps_pushregs_no_rdi
+-	sti
+-alltraps_pushregs_no_rdi:
++1:	SAVE_SEGS
+ 	movq	%rdx,TF_RDX(%rsp)
+ 	movq	%rax,TF_RAX(%rsp)
++	movq	%rcx,TF_RCX(%rsp)
++	testb	$SEL_RPL_MASK,TF_CS(%rsp)
++	jz	2f
++	call	handle_ibrs_entry
++2:	testl	$PSL_I,TF_RFLAGS(%rsp)
++	jz	alltraps_pushregs_no_rax
++	sti
+ alltraps_pushregs_no_rax:
+ 	movq	%rsi,TF_RSI(%rsp)
+-	movq	%rcx,TF_RCX(%rsp)
+ 	movq	%r8,TF_R8(%rsp)
+ 	movq	%r9,TF_R9(%rsp)
+ 	movq	%rbx,TF_RBX(%rsp)
+@@ -249,15 +244,18 @@ calltrap:
+ alltraps_noen:
+ 	movq	%rdi,TF_RDI(%rsp)
+ 	testb	$SEL_RPL_MASK,TF_CS(%rsp) /* Did we come from kernel? */
+-	jz	1f	/* already running with kernel GS.base */
++	jz	1f /* already running with kernel GS.base */
+ 	swapgs
+ 	movq	PCPU(CURPCB),%rdi
+ 	andl	$~PCB_FULL_IRET,PCB_FLAGS(%rdi)
+-1:	movw	%fs,TF_FS(%rsp)
+-	movw	%gs,TF_GS(%rsp)
+-	movw	%es,TF_ES(%rsp)
+-	movw	%ds,TF_DS(%rsp)
+-	jmp	alltraps_pushregs_no_rdi
++1:	SAVE_SEGS
++	movq	%rdx,TF_RDX(%rsp)
++	movq	%rax,TF_RAX(%rsp)
++	movq	%rcx,TF_RCX(%rsp)
++	testb	$SEL_RPL_MASK,TF_CS(%rsp)
++	jz	alltraps_pushregs_no_rax
++	call	handle_ibrs_entry
++	jmp	alltraps_pushregs_no_rax
+ 
+ IDTVEC(dblfault)
+ 	subq	$TF_ERR,%rsp
+@@ -279,10 +277,7 @@ IDTVEC(dblfault)
+ 	movq	%r13,TF_R13(%rsp)
+ 	movq	%r14,TF_R14(%rsp)
+ 	movq	%r15,TF_R15(%rsp)
+-	movw	%fs,TF_FS(%rsp)
+-	movw	%gs,TF_GS(%rsp)
+-	movw	%es,TF_ES(%rsp)
+-	movw	%ds,TF_DS(%rsp)
++	SAVE_SEGS
+ 	movl	$TF_HASSEGS,TF_FLAGS(%rsp)
+ 	cld
+ 	testb	$SEL_RPL_MASK,TF_CS(%rsp) /* Did we come from kernel? */
+@@ -289,31 +284,54 @@ IDTVEC(dblfault)
+ 	jz	1f			/* already running with kernel GS.base */
+ 	swapgs
+ 1:
+-	movq	%rsp,%rdi
++	movq	PCPU(KCR3),%rax
++	cmpq	$~0,%rax
++	je	2f
++	movq	%rax,%cr3
++2:	movq	%rsp,%rdi
+ 	call	dblfault_handler
+-2:
+-	hlt
+-	jmp	2b
++3:	hlt
++	jmp	3b
+ 
++	ALIGN_TEXT
++IDTVEC(page_pti)
++	testb	$SEL_RPL_MASK,PTI_CS-2*8(%rsp)
++	jz	Xpage
++	swapgs
++	pushq	%rax
++	pushq	%rdx
++	movq	%cr3,%rax
++	movq	%rax,PCPU(SAVED_UCR3)
++	PTI_UUENTRY has_err=1
++	subq	$TF_ERR,%rsp
++	movq	%rdi,TF_RDI(%rsp)
++	movq	%rax,TF_RAX(%rsp)
++	movq	%rdx,TF_RDX(%rsp)
++	movq	%rcx,TF_RCX(%rsp)
++	jmp	page_u
+ IDTVEC(page)
+ 	subq	$TF_ERR,%rsp
+-	movl	$T_PAGEFLT,TF_TRAPNO(%rsp)
+-	movq	%rdi,TF_RDI(%rsp)	/* free up a GP register */
++	movq	%rdi,TF_RDI(%rsp)	/* free up GP registers */
++	movq	%rax,TF_RAX(%rsp)
++	movq	%rdx,TF_RDX(%rsp)
++	movq	%rcx,TF_RCX(%rsp)
+ 	testb	$SEL_RPL_MASK,TF_CS(%rsp) /* Did we come from kernel? */
+-	jz	1f			/* already running with kernel GS.base */
++	jz	page_cr2		/* already running with kernel GS.base */
+ 	swapgs
+-	movq	PCPU(CURPCB),%rdi
++page_u:	movq	PCPU(CURPCB),%rdi
+ 	andl	$~PCB_FULL_IRET,PCB_FLAGS(%rdi)
+-1:	movq	%cr2,%rdi		/* preserve %cr2 before ..  */
++	movq	PCPU(SAVED_UCR3),%rax
++	movq	%rax,PCB_SAVED_UCR3(%rdi)
++	call	handle_ibrs_entry
++page_cr2:
++	movq	%cr2,%rdi		/* preserve %cr2 before ..  */
+ 	movq	%rdi,TF_ADDR(%rsp)	/* enabling interrupts. */
+-	movw	%fs,TF_FS(%rsp)
+-	movw	%gs,TF_GS(%rsp)
+-	movw	%es,TF_ES(%rsp)
+-	movw	%ds,TF_DS(%rsp)
++	SAVE_SEGS
++	movl	$T_PAGEFLT,TF_TRAPNO(%rsp)
+ 	testl	$PSL_I,TF_RFLAGS(%rsp)
+-	jz	alltraps_pushregs_no_rdi
++	jz	alltraps_pushregs_no_rax
+ 	sti
+-	jmp	alltraps_pushregs_no_rdi
++	jmp	alltraps_pushregs_no_rax
+ 
+ 	/*
+ 	 * We have to special-case this one.  If we get a trap in doreti() at
+@@ -320,15 +338,49 @@ IDTVEC(page)
+ 	 * the iretq stage, we'll reenter with the wrong gs state.  We'll have
+ 	 * to do a special the swapgs in this case even coming from the kernel.
+ 	 * XXX linux has a trap handler for their equivalent of load_gs().
++	 *
++	 * On the stack, we have the hardware interrupt frame to return
++	 * to usermode (faulted) and another frame with error code, for
++	 * fault.  For PTI, copy both frames to the main thread stack.
+ 	 */
+-IDTVEC(prot)
++	.macro PROTF_ENTRY name,trapno
++\name\()_pti_doreti:
++	pushq	%rax
++	pushq	%rdx
++	swapgs
++	movq	PCPU(KCR3),%rax
++	movq	%rax,%cr3
++	movq	PCPU(RSP0),%rax
++	subq	$2*PTI_SIZE-3*8,%rax /* no err, %rax, %rdx in faulted frame */
++	MOVE_STACKS	(PTI_SIZE / 4 - 3)
++	movq	%rax,%rsp
++	popq	%rdx
++	popq	%rax
++	swapgs
++	jmp	X\name
++IDTVEC(\name\()_pti)
++	cmpq	$doreti_iret,PTI_RIP-2*8(%rsp)
++	je	\name\()_pti_doreti
++	testb	$SEL_RPL_MASK,PTI_CS-2*8(%rsp) /* %rax, %rdx not yet pushed */
++	jz	X\name
++	PTI_UENTRY has_err=1
++	swapgs
++IDTVEC(\name)
+ 	subq	$TF_ERR,%rsp
+-	movl	$T_PROTFLT,TF_TRAPNO(%rsp)
++	movl	$\trapno,TF_TRAPNO(%rsp)
++	jmp	prot_addrf
++	.endm
++
++	PROTF_ENTRY	missing, T_SEGNPFLT
++	PROTF_ENTRY	stk, T_STKFLT
++	PROTF_ENTRY	prot, T_PROTFLT
++
+ prot_addrf:
+ 	movq	$0,TF_ADDR(%rsp)
+ 	movq	%rdi,TF_RDI(%rsp)	/* free up a GP register */
+ 	movq	%rax,TF_RAX(%rsp)
+ 	movq	%rdx,TF_RDX(%rsp)
++	movq	%rcx,TF_RCX(%rsp)
+ 	movw	%fs,TF_FS(%rsp)
+ 	movw	%gs,TF_GS(%rsp)
+ 	leaq	doreti_iret(%rip),%rdi
+@@ -354,7 +406,8 @@ prot_addrf:
+ 3:	cmpw	$KUG32SEL,TF_GS(%rsp)
+ 	jne	4f
+ 	movq	%rdx,PCB_GSBASE(%rdi)
+-4:	orl	$PCB_FULL_IRET,PCB_FLAGS(%rdi)	/* always full iret from GPF */
++4:	call	handle_ibrs_entry
++	orl	$PCB_FULL_IRET,PCB_FLAGS(%rdi)	/* always full iret from GPF */
+ 	movw	%es,TF_ES(%rsp)
+ 	movw	%ds,TF_DS(%rsp)
+ 	testl	$PSL_I,TF_RFLAGS(%rsp)
+@@ -375,8 +428,18 @@ prot_addrf:
+  * We do not support invoking this from a custom segment registers,
+  * esp. %cs, %ss, %fs, %gs, e.g. using entries from an LDT.
+  */
++	SUPERALIGN_TEXT
++IDTVEC(fast_syscall_pti)
++	swapgs
++	movq	%rax,PCPU(SCRATCH_RAX)
++	movq	PCPU(KCR3),%rax
++	movq	%rax,%cr3
++	jmp	fast_syscall_common
++	SUPERALIGN_TEXT
+ IDTVEC(fast_syscall)
+ 	swapgs
++	movq	%rax,PCPU(SCRATCH_RAX)
++fast_syscall_common:
+ 	movq	%rsp,PCPU(SCRATCH_RSP)
+ 	movq	PCPU(RSP0),%rsp
+ 	/* Now emulate a trapframe. Make the 8 byte alignment odd for call. */
+@@ -386,10 +449,11 @@ IDTVEC(fast_syscall)
+ 	movq	%rcx,TF_RIP(%rsp)	/* %rcx original value is in %r10 */
+ 	movq	PCPU(SCRATCH_RSP),%r11	/* %r11 already saved */
+ 	movq	%r11,TF_RSP(%rsp)	/* user stack pointer */
+-	movw	%fs,TF_FS(%rsp)
+-	movw	%gs,TF_GS(%rsp)
+-	movw	%es,TF_ES(%rsp)
+-	movw	%ds,TF_DS(%rsp)
++	movq	PCPU(SCRATCH_RAX),%rax
++	movq	%rax,TF_RAX(%rsp)	/* syscall number */
++	movq	%rdx,TF_RDX(%rsp)	/* arg 3 */
++	SAVE_SEGS
++	call	handle_ibrs_entry
+ 	movq	PCPU(CURPCB),%r11
+ 	andl	$~PCB_FULL_IRET,PCB_FLAGS(%r11)
+ 	sti
+@@ -398,11 +462,9 @@ IDTVEC(fast_syscall)
+ 	movq	$2,TF_ERR(%rsp)
+ 	movq	%rdi,TF_RDI(%rsp)	/* arg 1 */
+ 	movq	%rsi,TF_RSI(%rsp)	/* arg 2 */
+-	movq	%rdx,TF_RDX(%rsp)	/* arg 3 */
+ 	movq	%r10,TF_RCX(%rsp)	/* arg 4 */
+ 	movq	%r8,TF_R8(%rsp)		/* arg 5 */
+ 	movq	%r9,TF_R9(%rsp)		/* arg 6 */
+-	movq	%rax,TF_RAX(%rsp)	/* syscall number */
+ 	movq	%rbx,TF_RBX(%rsp)	/* C preserved */
+ 	movq	%rbp,TF_RBP(%rsp)	/* C preserved */
+ 	movq	%r12,TF_R12(%rsp)	/* C preserved */
+@@ -420,11 +482,12 @@ IDTVEC(fast_syscall)
+ 	/* Disable interrupts before testing PCB_FULL_IRET. */
+ 	cli
+ 	testl	$PCB_FULL_IRET,PCB_FLAGS(%rax)
+-	jnz	3f
++	jnz	4f
+ 	/* Check for and handle AST's on return to userland. */
+ 	movq	PCPU(CURTHREAD),%rax
+ 	testl	$TDF_ASTPENDING | TDF_NEEDRESCHED,TD_FLAGS(%rax)
+-	jne	2f
++	jne	3f
++	call	handle_ibrs_exit
+ 	/* Restore preserved registers. */
+ 	MEXITCOUNT
+ 	movq	TF_RDI(%rsp),%rdi	/* bonus; preserve arg 1 */
+@@ -434,16 +497,21 @@ IDTVEC(fast_syscall)
+ 	movq	TF_RFLAGS(%rsp),%r11	/* original %rflags */
+ 	movq	TF_RIP(%rsp),%rcx	/* original %rip */
+ 	movq	TF_RSP(%rsp),%rsp	/* user stack pointer */
+-	swapgs
++	cmpb	$0,pti
++	je	2f
++	movq	PCPU(UCR3),%r9
++	movq	%r9,%cr3
++	xorl	%r9d,%r9d
++2:	swapgs
+ 	sysretq
+ 
+-2:	/* AST scheduled. */
++3:	/* AST scheduled. */
+ 	sti
+ 	movq	%rsp,%rdi
+ 	call	ast
+ 	jmp	1b
+ 
+-3:	/* Requested full context restore, use doreti for that. */
++4:	/* Requested full context restore, use doreti for that. */
+ 	MEXITCOUNT
+ 	jmp	doreti
+ 
+@@ -499,10 +567,7 @@ IDTVEC(nmi)
+ 	movq	%r13,TF_R13(%rsp)
+ 	movq	%r14,TF_R14(%rsp)
+ 	movq	%r15,TF_R15(%rsp)
+-	movw	%fs,TF_FS(%rsp)
+-	movw	%gs,TF_GS(%rsp)
+-	movw	%es,TF_ES(%rsp)
+-	movw	%ds,TF_DS(%rsp)
++	SAVE_SEGS
+ 	movl	$TF_HASSEGS,TF_FLAGS(%rsp)
+ 	cld
+ 	xorl	%ebx,%ebx
+@@ -509,7 +574,8 @@ IDTVEC(nmi)
+ 	testb	$SEL_RPL_MASK,TF_CS(%rsp)
+ 	jnz	nmi_fromuserspace
+ 	/*
+-	 * We've interrupted the kernel.  Preserve GS.base in %r12.
++	 * We've interrupted the kernel.  Preserve GS.base in %r12,
++	 * %cr3 in %r13, and possibly lower half of MSR_IA32_SPEC_CTL in %r14d.
+ 	 */
+ 	movl	$MSR_GSBASE,%ecx
+ 	rdmsr
+@@ -521,27 +587,45 @@ IDTVEC(nmi)
+ 	movl	%edx,%eax
+ 	shrq	$32,%rdx
+ 	wrmsr
++	movq	%cr3,%r13
++	movq	PCPU(KCR3),%rax
++	cmpq	$~0,%rax
++	je	1f
++	movq	%rax,%cr3
++1:	testl	$CPUID_STDEXT3_IBPB,cpu_stdext_feature3(%rip)
++	je	nmi_calltrap
++	movl	$MSR_IA32_SPEC_CTRL,%ecx
++	rdmsr
++	movl	%eax,%r14d
++	call	handle_ibrs_entry
+ 	jmp	nmi_calltrap
+ nmi_fromuserspace:
+ 	incl	%ebx
+ 	swapgs
+-	testb	$CPUID_STDEXT_FSGSBASE,cpu_stdext_feature(%rip)
+-	jz	2f
++	movq	%cr3,%r13
++	movq	PCPU(KCR3),%rax
++	cmpq	$~0,%rax
++	je	1f
++	movq	%rax,%cr3
++1:	call	handle_ibrs_entry
+ 	movq	PCPU(CURPCB),%rdi
+ 	testq	%rdi,%rdi
+-	jz	2f
++	jz	3f
++	orl	$PCB_FULL_IRET,PCB_FLAGS(%rdi)
++	testb	$CPUID_STDEXT_FSGSBASE,cpu_stdext_feature(%rip)
++	jz	3f
+ 	cmpw	$KUF32SEL,TF_FS(%rsp)
+-	jne	1f
++	jne	2f
+ 	rdfsbase %rax
+ 	movq	%rax,PCB_FSBASE(%rdi)
+-1:	cmpw	$KUG32SEL,TF_GS(%rsp)
+-	jne	2f
++2:	cmpw	$KUG32SEL,TF_GS(%rsp)
++	jne	3f
+ 	movl	$MSR_KGSBASE,%ecx
+ 	rdmsr
+ 	shlq	$32,%rdx
+ 	orq	%rdx,%rax
+ 	movq	%rax,PCB_GSBASE(%rdi)
+-2:
++3:
+ /* Note: this label is also used by ddb and gdb: */
+ nmi_calltrap:
+ 	FAKE_MCOUNT(TF_RIP(%rsp))
+@@ -564,14 +648,9 @@ nmi_calltrap:
+ 	movq	PCPU(CURTHREAD),%rax
+ 	orq	%rax,%rax	/* curthread present? */
+ 	jz	nocallchain
+-	testl	$TDP_CALLCHAIN,TD_PFLAGS(%rax) /* flagged for capture? */
+-	jz	nocallchain
+ 	/*
+-	 * A user callchain is to be captured, so:
+-	 * - Move execution to the regular kernel stack, to allow for
+-	 *   nested NMI interrupts.
+-	 * - Take the processor out of "NMI" mode by faking an "iret".
+-	 * - Enable interrupts, so that copyin() can work.
++	 * Move execution to the regular kernel stack, because we
++	 * committed to return through doreti.
+ 	 */
+ 	movq	%rsp,%rsi	/* source stack pointer */
+ 	movq	$TF_SIZE,%rcx
+@@ -578,12 +657,20 @@ nmi_calltrap:
+ 	movq	PCPU(RSP0),%rdx
+ 	subq	%rcx,%rdx
+ 	movq	%rdx,%rdi	/* destination stack pointer */
+-
+ 	shrq	$3,%rcx		/* trap frame size in long words */
+ 	cld
+ 	rep
+ 	movsq			/* copy trapframe */
++	movq	%rdx,%rsp	/* we are on the regular kstack */
+ 
++	testl	$TDP_CALLCHAIN,TD_PFLAGS(%rax) /* flagged for capture? */
++	jz	nocallchain
++	/*
++	 * A user callchain is to be captured, so:
++	 * - Take the processor out of "NMI" mode by faking an "iret",
++	 *   to allow for nested NMI interrupts.
++	 * - Enable interrupts, so that copyin() can work.
++	 */
+ 	movl	%ss,%eax
+ 	pushq	%rax		/* tf_ss */
+ 	pushq	%rdx		/* tf_rsp (on kernel stack) */
+@@ -613,33 +700,139 @@ outofnmi:
+ 	cli
+ nocallchain:
+ #endif
+-	testl	%ebx,%ebx
++	testl	%ebx,%ebx	/* %ebx == 0 => return to userland */
+ 	jnz	doreti_exit
+-nmi_kernelexit:
+ 	/*
++	 * Restore speculation control MSR, if preserved.
++	 */
++	testl	$CPUID_STDEXT3_IBPB,cpu_stdext_feature3(%rip)
++	je	1f
++	movl	%r14d,%eax
++	xorl	%edx,%edx
++	movl	$MSR_IA32_SPEC_CTRL,%ecx
++	wrmsr
++	/*
+ 	 * Put back the preserved MSR_GSBASE value.
+ 	 */
++1:	movl	$MSR_GSBASE,%ecx
++	movq	%r12,%rdx
++	movl	%edx,%eax
++	shrq	$32,%rdx
++	wrmsr
++	movq	%r13,%cr3
++	RESTORE_REGS
++	addq	$TF_RIP,%rsp
++	jmp	doreti_iret
++
++/*
++ * MC# handling is similar to NMI.
++ *
++ * As with NMIs, machine check exceptions do not respect RFLAGS.IF and
++ * can occur at any time with a GS.base value that does not correspond
++ * to the privilege level in CS.
++ *
++ * Machine checks are not unblocked by iretq, but it is best to run
++ * the handler with interrupts disabled since the exception may have
++ * interrupted a critical section.
++ *
++ * The MC# handler runs on its own stack (tss_ist3).  The canonical
++ * GS.base value for the processor is stored just above the bottom of
++ * its MC# stack.  For exceptions taken from kernel mode, the current
++ * value in the processor's GS.base is saved at entry to C-preserved
++ * register %r12, the canonical value for GS.base is then loaded into
++ * the processor, and the saved value is restored at exit time.  For
++ * exceptions taken from user mode, the cheaper 'SWAPGS' instructions
++ * are used for swapping GS.base.
++ */
++
++IDTVEC(mchk)
++	subq	$TF_RIP,%rsp
++	movl	$(T_MCHK),TF_TRAPNO(%rsp)
++	movq	$0,TF_ADDR(%rsp)
++	movq	$0,TF_ERR(%rsp)
++	movq	%rdi,TF_RDI(%rsp)
++	movq	%rsi,TF_RSI(%rsp)
++	movq	%rdx,TF_RDX(%rsp)
++	movq	%rcx,TF_RCX(%rsp)
++	movq	%r8,TF_R8(%rsp)
++	movq	%r9,TF_R9(%rsp)
++	movq	%rax,TF_RAX(%rsp)
++	movq	%rbx,TF_RBX(%rsp)
++	movq	%rbp,TF_RBP(%rsp)
++	movq	%r10,TF_R10(%rsp)
++	movq	%r11,TF_R11(%rsp)
++	movq	%r12,TF_R12(%rsp)
++	movq	%r13,TF_R13(%rsp)
++	movq	%r14,TF_R14(%rsp)
++	movq	%r15,TF_R15(%rsp)
++	SAVE_SEGS
++	movl	$TF_HASSEGS,TF_FLAGS(%rsp)
++	cld
++	xorl	%ebx,%ebx
++	testb	$SEL_RPL_MASK,TF_CS(%rsp)
++	jnz	mchk_fromuserspace
++	/*
++	 * We've interrupted the kernel.  Preserve GS.base in %r12,
++	 * %cr3 in %r13, and possibly lower half of MSR_IA32_SPEC_CTL in %r14d.
++	 */
+ 	movl	$MSR_GSBASE,%ecx
++	rdmsr
++	movq	%rax,%r12
++	shlq	$32,%rdx
++	orq	%rdx,%r12
++	/* Retrieve and load the canonical value for GS.base. */
++	movq	TF_SIZE(%rsp),%rdx
++	movl	%edx,%eax
++	shrq	$32,%rdx
++	wrmsr
++	movq	%cr3,%r13
++	movq	PCPU(KCR3),%rax
++	cmpq	$~0,%rax
++	je	1f
++	movq	%rax,%cr3
++1:	testl	$CPUID_STDEXT3_IBPB,cpu_stdext_feature3(%rip)
++	je	mchk_calltrap
++	movl	$MSR_IA32_SPEC_CTRL,%ecx
++	rdmsr
++	movl	%eax,%r14d
++	call	handle_ibrs_entry
++	jmp	mchk_calltrap
++mchk_fromuserspace:
++	incl	%ebx
++	swapgs
++	movq	%cr3,%r13
++	movq	PCPU(KCR3),%rax
++	cmpq	$~0,%rax
++	je	1f
++	movq	%rax,%cr3
++1:	call	handle_ibrs_entry
++/* Note: this label is also used by ddb and gdb: */
++mchk_calltrap:
++	FAKE_MCOUNT(TF_RIP(%rsp))
++	movq	%rsp,%rdi
++	call	mca_intr
++	MEXITCOUNT
++	testl	%ebx,%ebx	/* %ebx == 0 => return to userland */
++	jnz	doreti_exit
++	/*
++	 * Restore speculation control MSR, if preserved.
++	 */
++	testl	$CPUID_STDEXT3_IBPB,cpu_stdext_feature3(%rip)
++	je	1f
++	movl	%r14d,%eax
++	xorl	%edx,%edx
++	movl	$MSR_IA32_SPEC_CTRL,%ecx
++	wrmsr
++	/*
++	 * Put back the preserved MSR_GSBASE value.
++	 */
++1:	movl	$MSR_GSBASE,%ecx
+ 	movq	%r12,%rdx
+ 	movl	%edx,%eax
+ 	shrq	$32,%rdx
+ 	wrmsr
+-nmi_restoreregs:
+-	movq	TF_RDI(%rsp),%rdi
+-	movq	TF_RSI(%rsp),%rsi
+-	movq	TF_RDX(%rsp),%rdx
+-	movq	TF_RCX(%rsp),%rcx
+-	movq	TF_R8(%rsp),%r8
+-	movq	TF_R9(%rsp),%r9
+-	movq	TF_RAX(%rsp),%rax
+-	movq	TF_RBX(%rsp),%rbx
+-	movq	TF_RBP(%rsp),%rbp
+-	movq	TF_R10(%rsp),%r10
+-	movq	TF_R11(%rsp),%r11
+-	movq	TF_R12(%rsp),%r12
+-	movq	TF_R13(%rsp),%r13
+-	movq	TF_R14(%rsp),%r14
+-	movq	TF_R15(%rsp),%r15
++	movq	%r13,%cr3
++	RESTORE_REGS
+ 	addq	$TF_RIP,%rsp
+ 	jmp	doreti_iret
+ 
+@@ -807,27 +1000,39 @@ ld_es:
+ ld_ds:
+ 	movw	TF_DS(%rsp),%ds
+ ld_regs:
+-	movq	TF_RDI(%rsp),%rdi
+-	movq	TF_RSI(%rsp),%rsi
+-	movq	TF_RDX(%rsp),%rdx
+-	movq	TF_RCX(%rsp),%rcx
+-	movq	TF_R8(%rsp),%r8
+-	movq	TF_R9(%rsp),%r9
+-	movq	TF_RAX(%rsp),%rax
+-	movq	TF_RBX(%rsp),%rbx
+-	movq	TF_RBP(%rsp),%rbp
+-	movq	TF_R10(%rsp),%r10
+-	movq	TF_R11(%rsp),%r11
+-	movq	TF_R12(%rsp),%r12
+-	movq	TF_R13(%rsp),%r13
+-	movq	TF_R14(%rsp),%r14
+-	movq	TF_R15(%rsp),%r15
++	RESTORE_REGS
+ 	testb	$SEL_RPL_MASK,TF_CS(%rsp) /* Did we come from kernel? */
+-	jz	1f			/* keep running with kernel GS.base */
++	jz	2f			/* keep running with kernel GS.base */
+ 	cli
++	call	handle_ibrs_exit_rs
++	cmpb	$0,pti
++	je	1f
++	pushq	%rdx
++	movq	PCPU(PRVSPACE),%rdx
++	addq	$PC_PTI_STACK+PC_PTI_STACK_SZ*8-PTI_SIZE,%rdx
++	movq	%rax,PTI_RAX(%rdx)
++	popq	%rax
++	movq	%rax,PTI_RDX(%rdx)
++	movq	TF_RIP(%rsp),%rax
++	movq	%rax,PTI_RIP(%rdx)
++	movq	TF_CS(%rsp),%rax
++	movq	%rax,PTI_CS(%rdx)
++	movq	TF_RFLAGS(%rsp),%rax
++	movq	%rax,PTI_RFLAGS(%rdx)
++	movq	TF_RSP(%rsp),%rax
++	movq	%rax,PTI_RSP(%rdx)
++	movq	TF_SS(%rsp),%rax
++	movq	%rax,PTI_SS(%rdx)
++	movq	PCPU(UCR3),%rax
+ 	swapgs
+-1:
+-	addq	$TF_RIP,%rsp		/* skip over tf_err, tf_trapno */
++	movq	%rdx,%rsp
++	movq	%rax,%cr3
++	popq	%rdx
++	popq	%rax
++	addq	$8,%rsp
++	jmp	doreti_iret
++1:	swapgs
++2:	addq	$TF_RIP,%rsp
+ 	.globl	doreti_iret
+ doreti_iret:
+ 	iretq
+@@ -851,22 +1056,20 @@ set_segs:
+ 	.globl	doreti_iret_fault
+ doreti_iret_fault:
+ 	subq	$TF_RIP,%rsp		/* space including tf_err, tf_trapno */
+-	testl	$PSL_I,TF_RFLAGS(%rsp)
++	movq	%rax,TF_RAX(%rsp)
++	movq	%rdx,TF_RDX(%rsp)
++	movq	%rcx,TF_RCX(%rsp)
++	call	handle_ibrs_entry
++	testb	$SEL_RPL_MASK,TF_CS(%rsp)
+ 	jz	1f
+ 	sti
+ 1:
+-	movw	%fs,TF_FS(%rsp)
+-	movw	%gs,TF_GS(%rsp)
+-	movw	%es,TF_ES(%rsp)
+-	movw	%ds,TF_DS(%rsp)
++	SAVE_SEGS
+ 	movl	$TF_HASSEGS,TF_FLAGS(%rsp)
+ 	movq	%rdi,TF_RDI(%rsp)
+ 	movq	%rsi,TF_RSI(%rsp)
+-	movq	%rdx,TF_RDX(%rsp)
+-	movq	%rcx,TF_RCX(%rsp)
+ 	movq	%r8,TF_R8(%rsp)
+ 	movq	%r9,TF_R9(%rsp)
+-	movq	%rax,TF_RAX(%rsp)
+ 	movq	%rbx,TF_RBX(%rsp)
+ 	movq	%rbp,TF_RBP(%rsp)
+ 	movq	%r10,TF_R10(%rsp)
+@@ -885,7 +1088,7 @@ doreti_iret_fault:
+ 	.globl	ds_load_fault
+ ds_load_fault:
+ 	movl	$T_PROTFLT,TF_TRAPNO(%rsp)
+-	testl	$PSL_I,TF_RFLAGS(%rsp)
++	testb	$SEL_RPL_MASK,TF_CS(%rsp)
+ 	jz	1f
+ 	sti
+ 1:
+Index: sys/amd64/amd64/genassym.c
+===================================================================
+--- sys/amd64/amd64/genassym.c	(revision 329241)
++++ sys/amd64/amd64/genassym.c	(working copy)
+@@ -142,6 +142,7 @@ ASSYM(PCB_LDT, offsetof(struct pcb, pcb_ldt));
+ ASSYM(PCB_TR, offsetof(struct pcb, pcb_tr));
+ ASSYM(PCB_FLAGS, offsetof(struct pcb, pcb_flags));
+ ASSYM(PCB_ONFAULT, offsetof(struct pcb, pcb_onfault));
++ASSYM(PCB_SAVED_UCR3, offsetof(struct pcb, pcb_saved_ucr3));
+ ASSYM(PCB_TSSP, offsetof(struct pcb, pcb_tssp));
+ ASSYM(PCB_SAVEFPU, offsetof(struct pcb, pcb_save));
+ ASSYM(PCB_EFER, offsetof(struct pcb, pcb_efer));
+@@ -187,6 +188,16 @@ ASSYM(TF_FLAGS, offsetof(struct trapframe, tf_flag
+ ASSYM(TF_SIZE, sizeof(struct trapframe));
+ ASSYM(TF_HASSEGS, TF_HASSEGS);
+ 
++ASSYM(PTI_RDX, offsetof(struct pti_frame, pti_rdx));
++ASSYM(PTI_RAX, offsetof(struct pti_frame, pti_rax));
++ASSYM(PTI_ERR, offsetof(struct pti_frame, pti_err));
++ASSYM(PTI_RIP, offsetof(struct pti_frame, pti_rip));
++ASSYM(PTI_CS, offsetof(struct pti_frame, pti_cs));
++ASSYM(PTI_RFLAGS, offsetof(struct pti_frame, pti_rflags));
++ASSYM(PTI_RSP, offsetof(struct pti_frame, pti_rsp));
++ASSYM(PTI_SS, offsetof(struct pti_frame, pti_ss));
++ASSYM(PTI_SIZE, sizeof(struct pti_frame));
++
+ ASSYM(SIGF_HANDLER, offsetof(struct sigframe, sf_ahu.sf_handler));
+ ASSYM(SIGF_UC, offsetof(struct sigframe, sf_uc));
+ ASSYM(UC_EFLAGS, offsetof(ucontext_t, uc_mcontext.mc_rflags));
+@@ -203,6 +214,7 @@ ASSYM(PC_IDLETHREAD, offsetof(struct pcpu, pc_idle
+ ASSYM(PC_CURPCB, offsetof(struct pcpu, pc_curpcb));
+ ASSYM(PC_CPUID, offsetof(struct pcpu, pc_cpuid));
+ ASSYM(PC_SCRATCH_RSP, offsetof(struct pcpu, pc_scratch_rsp));
++ASSYM(PC_SCRATCH_RAX, offsetof(struct pcpu, pc_scratch_rax));
+ ASSYM(PC_CURPMAP, offsetof(struct pcpu, pc_curpmap));
+ ASSYM(PC_TSSP, offsetof(struct pcpu, pc_tssp));
+ ASSYM(PC_RSP0, offsetof(struct pcpu, pc_rsp0));
+@@ -212,6 +224,12 @@ ASSYM(PC_LDT, offsetof(struct pcpu, pc_ldt));
+ ASSYM(PC_COMMONTSSP, offsetof(struct pcpu, pc_commontssp));
+ ASSYM(PC_TSS, offsetof(struct pcpu, pc_tss));
+ ASSYM(PC_PM_SAVE_CNT, offsetof(struct pcpu, pc_pm_save_cnt));
++ASSYM(PC_KCR3, offsetof(struct pcpu, pc_kcr3));
++ASSYM(PC_UCR3, offsetof(struct pcpu, pc_ucr3));
++ASSYM(PC_SAVED_UCR3, offsetof(struct pcpu, pc_saved_ucr3));
++ASSYM(PC_PTI_STACK, offsetof(struct pcpu, pc_pti_stack));
++ASSYM(PC_PTI_STACK_SZ, PC_PTI_STACK_SZ);
++ASSYM(PC_IBPB_SET, offsetof(struct pcpu, pc_ibpb_set));
+  
+ ASSYM(LA_EOI, LAPIC_EOI * LAPIC_MEM_MUL);
+ ASSYM(LA_ISR, LAPIC_ISR0 * LAPIC_MEM_MUL);
+Index: sys/amd64/amd64/initcpu.c
+===================================================================
+--- sys/amd64/amd64/initcpu.c	(revision 329241)
++++ sys/amd64/amd64/initcpu.c	(working copy)
+@@ -221,6 +221,7 @@ initializecpu(void)
+ 		wrmsr(MSR_EFER, msr);
+ 		pg_nx = PG_NX;
+ 	}
++	hw_ibrs_recalculate();
+ 	switch (cpu_vendor_id) {
+ 	case CPU_VENDOR_AMD:
+ 		init_amd();
+Index: sys/amd64/amd64/machdep.c
+===================================================================
+--- sys/amd64/amd64/machdep.c	(revision 329241)
++++ sys/amd64/amd64/machdep.c	(working copy)
+@@ -114,6 +114,7 @@ __FBSDID("$FreeBSD$");
+ #include <machine/clock.h>
+ #include <machine/cpu.h>
+ #include <machine/cputypes.h>
++#include <machine/frame.h>
+ #include <machine/intr_machdep.h>
+ #include <x86/mca.h>
+ #include <machine/md_var.h>
+@@ -149,6 +150,14 @@ __FBSDID("$FreeBSD$");
+ /* Sanity check for __curthread() */
+ CTASSERT(offsetof(struct pcpu, pc_curthread) == 0);
+ 
++/*
++ * The PTI trampoline stack needs enough space for a hardware trapframe and a
++ * couple of scratch registers, as well as the trapframe left behind after an
++ * iret fault.
++ */
++CTASSERT(PC_PTI_STACK_SZ * sizeof(register_t) >= 2 * sizeof(struct pti_frame) -
++    offsetof(struct pti_frame, pti_rip));
++
+ extern u_int64_t hammer_time(u_int64_t, u_int64_t);
+ 
+ #define	CS_SECURE(cs)		(ISPL(cs) == SEL_UPL)
+@@ -180,12 +189,6 @@ struct init_ops init_ops = {
+ 	.msi_init =			msi_init,
+ };
+ 
+-/*
+- * The file "conf/ldscript.amd64" defines the symbol "kernphys".  Its value is
+- * the physical address at which the kernel is loaded.
+- */
+-extern char kernphys[];
+-
+ struct msgbuf *msgbufp;
+ 
+ /*
+@@ -670,7 +673,7 @@ static struct gate_descriptor idt0[NIDT];
+ struct gate_descriptor *idt = &idt0[0];	/* interrupt descriptor table */
+ 
+ static char dblfault_stack[PAGE_SIZE] __aligned(16);
+-
++static char mce0_stack[PAGE_SIZE] __aligned(16);
+ static char nmi0_stack[PAGE_SIZE] __aligned(16);
+ CTASSERT(sizeof(struct nmi_pcpu) == 16);
+ 
+@@ -824,13 +827,20 @@ extern inthand_t
+ 	IDTVEC(tss), IDTVEC(missing), IDTVEC(stk), IDTVEC(prot),
+ 	IDTVEC(page), IDTVEC(mchk), IDTVEC(rsvd), IDTVEC(fpu), IDTVEC(align),
+ 	IDTVEC(xmm), IDTVEC(dblfault),
++	IDTVEC(div_pti), IDTVEC(dbg_pti), IDTVEC(bpt_pti),
++	IDTVEC(ofl_pti), IDTVEC(bnd_pti), IDTVEC(ill_pti), IDTVEC(dna_pti),
++	IDTVEC(fpusegm_pti), IDTVEC(tss_pti), IDTVEC(missing_pti),
++	IDTVEC(stk_pti), IDTVEC(prot_pti), IDTVEC(page_pti),
++	IDTVEC(rsvd_pti), IDTVEC(fpu_pti), IDTVEC(align_pti),
++	IDTVEC(xmm_pti),
+ #ifdef KDTRACE_HOOKS
+-	IDTVEC(dtrace_ret),
++	IDTVEC(dtrace_ret), IDTVEC(dtrace_ret_pti),
+ #endif
+ #ifdef XENHVM
+-	IDTVEC(xen_intr_upcall),
++	IDTVEC(xen_intr_upcall), IDTVEC(xen_intr_upcall_pti),
+ #endif
+-	IDTVEC(fast_syscall), IDTVEC(fast_syscall32);
++	IDTVEC(fast_syscall), IDTVEC(fast_syscall32),
++	IDTVEC(fast_syscall_pti);
+ 
+ #ifdef DDB
+ /*
+@@ -1531,7 +1541,8 @@ amd64_conf_fast_syscall(void)
+ 
+ 	msr = rdmsr(MSR_EFER) | EFER_SCE;
+ 	wrmsr(MSR_EFER, msr);
+-	wrmsr(MSR_LSTAR, (u_int64_t)IDTVEC(fast_syscall));
++	wrmsr(MSR_LSTAR, pti ? (u_int64_t)IDTVEC(fast_syscall_pti) :
++	    (u_int64_t)IDTVEC(fast_syscall));
+ 	wrmsr(MSR_CSTAR, (u_int64_t)IDTVEC(fast_syscall32));
+ 	msr = ((u_int64_t)GSEL(GCODE_SEL, SEL_KPL) << 32) |
+ 	    ((u_int64_t)GSEL(GUCODE32_SEL, SEL_UPL) << 48);
+@@ -1547,6 +1558,7 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
+ 	struct pcpu *pc;
+ 	struct nmi_pcpu *np;
+ 	struct xstate_hdr *xhdr;
++	u_int64_t rsp0;
+ 	char *env;
+ 	size_t kstack0_sz;
+ 	int late_console;
+@@ -1618,34 +1630,55 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
+ 	mtx_init(&dt_lock, "descriptor tables", NULL, MTX_DEF);
+ 
+ 	/* exceptions */
++	pti = pti_get_default();
++	TUNABLE_INT_FETCH("vm.pmap.pti", &pti);
++
+ 	for (x = 0; x < NIDT; x++)
+-		setidt(x, &IDTVEC(rsvd), SDT_SYSIGT, SEL_KPL, 0);
+-	setidt(IDT_DE, &IDTVEC(div),  SDT_SYSIGT, SEL_KPL, 0);
+-	setidt(IDT_DB, &IDTVEC(dbg),  SDT_SYSIGT, SEL_KPL, 0);
++		setidt(x, pti ? &IDTVEC(rsvd_pti) : &IDTVEC(rsvd), SDT_SYSIGT,
++		    SEL_KPL, 0);
++	setidt(IDT_DE, pti ? &IDTVEC(div_pti) : &IDTVEC(div), SDT_SYSIGT,
++	    SEL_KPL, 0);
++	setidt(IDT_DB, pti ? &IDTVEC(dbg_pti) : &IDTVEC(dbg), SDT_SYSIGT,
++	    SEL_KPL, 0);
+ 	setidt(IDT_NMI, &IDTVEC(nmi),  SDT_SYSIGT, SEL_KPL, 2);
+- 	setidt(IDT_BP, &IDTVEC(bpt),  SDT_SYSIGT, SEL_UPL, 0);
+-	setidt(IDT_OF, &IDTVEC(ofl),  SDT_SYSIGT, SEL_KPL, 0);
+-	setidt(IDT_BR, &IDTVEC(bnd),  SDT_SYSIGT, SEL_KPL, 0);
+-	setidt(IDT_UD, &IDTVEC(ill),  SDT_SYSIGT, SEL_KPL, 0);
+-	setidt(IDT_NM, &IDTVEC(dna),  SDT_SYSIGT, SEL_KPL, 0);
++	setidt(IDT_BP, pti ? &IDTVEC(bpt_pti) : &IDTVEC(bpt), SDT_SYSIGT,
++	    SEL_UPL, 0);
++	setidt(IDT_OF, pti ? &IDTVEC(ofl_pti) : &IDTVEC(ofl), SDT_SYSIGT,
++	    SEL_KPL, 0);
++	setidt(IDT_BR, pti ? &IDTVEC(bnd_pti) : &IDTVEC(bnd), SDT_SYSIGT,
++	    SEL_KPL, 0);
++	setidt(IDT_UD, pti ? &IDTVEC(ill_pti) : &IDTVEC(ill), SDT_SYSIGT,
++	    SEL_KPL, 0);
++	setidt(IDT_NM, pti ? &IDTVEC(dna_pti) : &IDTVEC(dna), SDT_SYSIGT,
++	    SEL_KPL, 0);
+ 	setidt(IDT_DF, &IDTVEC(dblfault), SDT_SYSIGT, SEL_KPL, 1);
+-	setidt(IDT_FPUGP, &IDTVEC(fpusegm),  SDT_SYSIGT, SEL_KPL, 0);
+-	setidt(IDT_TS, &IDTVEC(tss),  SDT_SYSIGT, SEL_KPL, 0);
+-	setidt(IDT_NP, &IDTVEC(missing),  SDT_SYSIGT, SEL_KPL, 0);
+-	setidt(IDT_SS, &IDTVEC(stk),  SDT_SYSIGT, SEL_KPL, 0);
+-	setidt(IDT_GP, &IDTVEC(prot),  SDT_SYSIGT, SEL_KPL, 0);
+-	setidt(IDT_PF, &IDTVEC(page),  SDT_SYSIGT, SEL_KPL, 0);
+-	setidt(IDT_MF, &IDTVEC(fpu),  SDT_SYSIGT, SEL_KPL, 0);
+-	setidt(IDT_AC, &IDTVEC(align), SDT_SYSIGT, SEL_KPL, 0);
+-	setidt(IDT_MC, &IDTVEC(mchk),  SDT_SYSIGT, SEL_KPL, 0);
+-	setidt(IDT_XF, &IDTVEC(xmm), SDT_SYSIGT, SEL_KPL, 0);
++	setidt(IDT_FPUGP, pti ? &IDTVEC(fpusegm_pti) : &IDTVEC(fpusegm),
++	    SDT_SYSIGT, SEL_KPL, 0);
++	setidt(IDT_TS, pti ? &IDTVEC(tss_pti) : &IDTVEC(tss), SDT_SYSIGT,
++	    SEL_KPL, 0);
++	setidt(IDT_NP, pti ? &IDTVEC(missing_pti) : &IDTVEC(missing),
++	    SDT_SYSIGT, SEL_KPL, 0);
++	setidt(IDT_SS, pti ? &IDTVEC(stk_pti) : &IDTVEC(stk), SDT_SYSIGT,
++	    SEL_KPL, 0);
++	setidt(IDT_GP, pti ? &IDTVEC(prot_pti) : &IDTVEC(prot), SDT_SYSIGT,
++	    SEL_KPL, 0);
++	setidt(IDT_PF, pti ? &IDTVEC(page_pti) : &IDTVEC(page), SDT_SYSIGT,
++	    SEL_KPL, 0);
++	setidt(IDT_MF, pti ? &IDTVEC(fpu_pti) : &IDTVEC(fpu), SDT_SYSIGT,
++	    SEL_KPL, 0);
++	setidt(IDT_AC, pti ? &IDTVEC(align_pti) : &IDTVEC(align), SDT_SYSIGT,
++	    SEL_KPL, 0);
++	setidt(IDT_MC, &IDTVEC(mchk), SDT_SYSIGT, SEL_KPL, 3);
++	setidt(IDT_XF, pti ? &IDTVEC(xmm_pti) : &IDTVEC(xmm), SDT_SYSIGT,
++	    SEL_KPL, 0);
+ #ifdef KDTRACE_HOOKS
+-	setidt(IDT_DTRACE_RET, &IDTVEC(dtrace_ret), SDT_SYSIGT, SEL_UPL, 0);
++	setidt(IDT_DTRACE_RET, pti ? &IDTVEC(dtrace_ret_pti) :
++	    &IDTVEC(dtrace_ret), SDT_SYSIGT, SEL_UPL, 0);
+ #endif
+ #ifdef XENHVM
+-	setidt(IDT_EVTCHN, &IDTVEC(xen_intr_upcall), SDT_SYSIGT, SEL_UPL, 0);
++	setidt(IDT_EVTCHN, pti ? &IDTVEC(xen_intr_upcall_pti) :
++	    &IDTVEC(xen_intr_upcall), SDT_SYSIGT, SEL_KPL, 0);
+ #endif
+-
+ 	r_idt.rd_limit = sizeof(idt0) - 1;
+ 	r_idt.rd_base = (long) idt;
+ 	lidt(&r_idt);
+@@ -1681,6 +1714,14 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
+ 	np->np_pcpu = (register_t) pc;
+ 	common_tss[0].tss_ist2 = (long) np;
+ 
++	/*
++	 * MC# stack, runs on ist3.  The pcpu pointer is stored just
++	 * above the start of the ist3 stack.
++	 */
++	np = ((struct nmi_pcpu *) &mce0_stack[sizeof(mce0_stack)]) - 1;
++	np->np_pcpu = (register_t) pc;
++	common_tss[0].tss_ist3 = (long) np;
++	
+ 	/* Set the IO permission bitmap (empty due to tss seg limit) */
+ 	common_tss[0].tss_iobase = sizeof(struct amd64tss) + IOPERM_BITMAP_SIZE;
+ 
+@@ -1759,10 +1800,12 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
+ 		xhdr->xstate_bv = xsave_mask;
+ 	}
+ 	/* make an initial tss so cpu can get interrupt stack on syscall! */
+-	common_tss[0].tss_rsp0 = (vm_offset_t)thread0.td_pcb;
++	rsp0 = (vm_offset_t)thread0.td_pcb;
+ 	/* Ensure the stack is aligned to 16 bytes */
+-	common_tss[0].tss_rsp0 &= ~0xFul;
+-	PCPU_SET(rsp0, common_tss[0].tss_rsp0);
++	rsp0 &= ~0xFul;
++	common_tss[0].tss_rsp0 = pti ? ((vm_offset_t)PCPU_PTR(pti_stack) +
++	    PC_PTI_STACK_SZ * sizeof(uint64_t)) & ~0xful : rsp0;
++	PCPU_SET(rsp0, rsp0);
+ 	PCPU_SET(curpcb, thread0.td_pcb);
+ 
+ 	/* transfer to user mode */
+@@ -1792,6 +1835,8 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
+ #endif
+ 	thread0.td_critnest = 0;
+ 
++	TUNABLE_INT_FETCH("hw.ibrs_disable", &hw_ibrs_disable);
++
+ 	/* Location of kernel stack for locore */
+ 	return ((u_int64_t)thread0.td_pcb);
+ }
+Index: sys/amd64/amd64/mp_machdep.c
+===================================================================
+--- sys/amd64/amd64/mp_machdep.c	(revision 329241)
++++ sys/amd64/amd64/mp_machdep.c	(working copy)
+@@ -85,6 +85,7 @@ extern	struct pcpu __pcpu[];
+ 
+ /* Temporary variables for init_secondary()  */
+ char *doublefault_stack;
++char *mce_stack;
+ char *nmi_stack;
+ 
+ /*
+@@ -130,33 +131,50 @@ cpu_mp_start(void)
+ 	/* Install an inter-CPU IPI for TLB invalidation */
+ 	if (pmap_pcid_enabled) {
+ 		if (invpcid_works) {
+-			setidt(IPI_INVLTLB, IDTVEC(invltlb_invpcid),
+-			    SDT_SYSIGT, SEL_KPL, 0);
++			setidt(IPI_INVLTLB, pti ?
++			    IDTVEC(invltlb_invpcid_pti_pti) :
++			    IDTVEC(invltlb_invpcid_nopti), SDT_SYSIGT,
++			    SEL_KPL, 0);
++			setidt(IPI_INVLPG, pti ? IDTVEC(invlpg_invpcid_pti) :
++			    IDTVEC(invlpg_invpcid), SDT_SYSIGT, SEL_KPL, 0);
++			setidt(IPI_INVLRNG, pti ? IDTVEC(invlrng_invpcid_pti) :
++			    IDTVEC(invlrng_invpcid), SDT_SYSIGT, SEL_KPL, 0);
+ 		} else {
+-			setidt(IPI_INVLTLB, IDTVEC(invltlb_pcid), SDT_SYSIGT,
+-			    SEL_KPL, 0);
++			setidt(IPI_INVLTLB, pti ? IDTVEC(invltlb_pcid_pti) :
++			    IDTVEC(invltlb_pcid), SDT_SYSIGT, SEL_KPL, 0);
++			setidt(IPI_INVLPG, pti ? IDTVEC(invlpg_pcid_pti) :
++			    IDTVEC(invlpg_pcid), SDT_SYSIGT, SEL_KPL, 0);
++			setidt(IPI_INVLRNG, pti ? IDTVEC(invlrng_pcid_pti) :
++			    IDTVEC(invlrng_pcid), SDT_SYSIGT, SEL_KPL, 0);
+ 		}
+ 	} else {
+-		setidt(IPI_INVLTLB, IDTVEC(invltlb), SDT_SYSIGT, SEL_KPL, 0);
++		setidt(IPI_INVLTLB, pti ? IDTVEC(invltlb_pti) : IDTVEC(invltlb),
++		    SDT_SYSIGT, SEL_KPL, 0);
++		setidt(IPI_INVLPG, pti ? IDTVEC(invlpg_pti) : IDTVEC(invlpg),
++		    SDT_SYSIGT, SEL_KPL, 0);
++		setidt(IPI_INVLRNG, pti ? IDTVEC(invlrng_pti) : IDTVEC(invlrng),
++		    SDT_SYSIGT, SEL_KPL, 0);
+ 	}
+-	setidt(IPI_INVLPG, IDTVEC(invlpg), SDT_SYSIGT, SEL_KPL, 0);
+-	setidt(IPI_INVLRNG, IDTVEC(invlrng), SDT_SYSIGT, SEL_KPL, 0);
+ 
+ 	/* Install an inter-CPU IPI for cache invalidation. */
+-	setidt(IPI_INVLCACHE, IDTVEC(invlcache), SDT_SYSIGT, SEL_KPL, 0);
++	setidt(IPI_INVLCACHE, pti ? IDTVEC(invlcache_pti) : IDTVEC(invlcache),
++	    SDT_SYSIGT, SEL_KPL, 0);
+ 
+ 	/* Install an inter-CPU IPI for all-CPU rendezvous */
+-	setidt(IPI_RENDEZVOUS, IDTVEC(rendezvous), SDT_SYSIGT, SEL_KPL, 0);
++	setidt(IPI_RENDEZVOUS, pti ? IDTVEC(rendezvous_pti) :
++	    IDTVEC(rendezvous), SDT_SYSIGT, SEL_KPL, 0);
+ 
+ 	/* Install generic inter-CPU IPI handler */
+-	setidt(IPI_BITMAP_VECTOR, IDTVEC(ipi_intr_bitmap_handler),
+-	       SDT_SYSIGT, SEL_KPL, 0);
++	setidt(IPI_BITMAP_VECTOR, pti ? IDTVEC(ipi_intr_bitmap_handler_pti) :
++	    IDTVEC(ipi_intr_bitmap_handler), SDT_SYSIGT, SEL_KPL, 0);
+ 
+ 	/* Install an inter-CPU IPI for CPU stop/restart */
+-	setidt(IPI_STOP, IDTVEC(cpustop), SDT_SYSIGT, SEL_KPL, 0);
++	setidt(IPI_STOP, pti ? IDTVEC(cpustop_pti) : IDTVEC(cpustop),
++	    SDT_SYSIGT, SEL_KPL, 0);
+ 
+ 	/* Install an inter-CPU IPI for CPU suspend/resume */
+-	setidt(IPI_SUSPEND, IDTVEC(cpususpend), SDT_SYSIGT, SEL_KPL, 0);
++	setidt(IPI_SUSPEND, pti ? IDTVEC(cpususpend_pti) : IDTVEC(cpususpend),
++	    SDT_SYSIGT, SEL_KPL, 0);
+ 
+ 	/* Set boot_cpu_id if needed. */
+ 	if (boot_cpu_id == -1) {
+@@ -195,7 +213,6 @@ init_secondary(void)
+ 
+ 	/* Init tss */
+ 	common_tss[cpu] = common_tss[0];
+-	common_tss[cpu].tss_rsp0 = 0;   /* not used until after switch */
+ 	common_tss[cpu].tss_iobase = sizeof(struct amd64tss) +
+ 	    IOPERM_BITMAP_SIZE;
+ 	common_tss[cpu].tss_ist1 = (long)&doublefault_stack[PAGE_SIZE];
+@@ -204,6 +221,10 @@ init_secondary(void)
+ 	np = ((struct nmi_pcpu *) &nmi_stack[PAGE_SIZE]) - 1;
+ 	common_tss[cpu].tss_ist2 = (long) np;
+ 
++	/* The MC# stack runs on IST3. */
++	np = ((struct nmi_pcpu *) &mce_stack[PAGE_SIZE]) - 1;
++	common_tss[cpu].tss_ist3 = (long) np;
++
+ 	/* Prepare private GDT */
+ 	gdt_segs[GPROC0_SEL].ssd_base = (long) &common_tss[cpu];
+ 	for (x = 0; x < NGDT; x++) {
+@@ -238,10 +259,17 @@ init_secondary(void)
+ 	pc->pc_curpmap = kernel_pmap;
+ 	pc->pc_pcid_gen = 1;
+ 	pc->pc_pcid_next = PMAP_PCID_KERN + 1;
++	common_tss[cpu].tss_rsp0 = pti ? ((vm_offset_t)&pc->pc_pti_stack +
++	    PC_PTI_STACK_SZ * sizeof(uint64_t)) & ~0xful : 0;
+ 
+ 	/* Save the per-cpu pointer for use by the NMI handler. */
++	np = ((struct nmi_pcpu *) &nmi_stack[PAGE_SIZE]) - 1;
+ 	np->np_pcpu = (register_t) pc;
+ 
++	/* Save the per-cpu pointer for use by the MC# handler. */
++	np = ((struct nmi_pcpu *) &mce_stack[PAGE_SIZE]) - 1;
++	np->np_pcpu = (register_t) pc;
++
+ 	wrmsr(MSR_FSBASE, 0);		/* User value */
+ 	wrmsr(MSR_GSBASE, (u_int64_t)pc);
+ 	wrmsr(MSR_KGSBASE, (u_int64_t)pc);	/* XXX User value while we're in the kernel */
+@@ -336,6 +364,8 @@ native_start_all_aps(void)
+ 		    kstack_pages * PAGE_SIZE, M_WAITOK | M_ZERO);
+ 		doublefault_stack = (char *)kmem_malloc(kernel_arena,
+ 		    PAGE_SIZE, M_WAITOK | M_ZERO);
++		mce_stack = (char *)kmem_malloc(kernel_arena, PAGE_SIZE,
++		    M_WAITOK | M_ZERO);
+ 		nmi_stack = (char *)kmem_malloc(kernel_arena, PAGE_SIZE,
+ 		    M_WAITOK | M_ZERO);
+ 		dpcpu = (void *)kmem_malloc(kernel_arena, DPCPU_SIZE,
+@@ -418,9 +448,43 @@ invltlb_invpcid_handler(void)
+ }
+ 
+ void
++invltlb_invpcid_pti_handler(void)
++{
++	struct invpcid_descr d;
++	uint32_t generation;
++
++#ifdef COUNT_XINVLTLB_HITS
++	xhits_gbl[PCPU_GET(cpuid)]++;
++#endif /* COUNT_XINVLTLB_HITS */
++#ifdef COUNT_IPIS
++	(*ipi_invltlb_counts[PCPU_GET(cpuid)])++;
++#endif /* COUNT_IPIS */
++
++	generation = smp_tlb_generation;
++	d.pcid = smp_tlb_pmap->pm_pcids[PCPU_GET(cpuid)].pm_pcid;
++	d.pad = 0;
++	d.addr = 0;
++	if (smp_tlb_pmap == kernel_pmap) {
++		/*
++		 * This invalidation actually needs to clear kernel
++		 * mappings from the TLB in the current pmap, but
++		 * since we were asked for the flush in the kernel
++		 * pmap, achieve it by performing global flush.
++		 */
++		invpcid(&d, INVPCID_CTXGLOB);
++	} else {
++		invpcid(&d, INVPCID_CTX);
++		d.pcid |= PMAP_PCID_USER_PT;
++		invpcid(&d, INVPCID_CTX);
++	}
++	PCPU_SET(smp_tlb_done, generation);
++}
++
++void
+ invltlb_pcid_handler(void)
+ {
+-	uint32_t generation;
++	uint64_t kcr3, ucr3;
++	uint32_t generation, pcid;
+   
+ #ifdef COUNT_XINVLTLB_HITS
+ 	xhits_gbl[PCPU_GET(cpuid)]++;
+@@ -441,9 +505,132 @@ invltlb_pcid_handler(void)
+ 		 * CPU.
+ 		 */
+ 		if (PCPU_GET(curpmap) == smp_tlb_pmap) {
+-			load_cr3(smp_tlb_pmap->pm_cr3 |
+-			    smp_tlb_pmap->pm_pcids[PCPU_GET(cpuid)].pm_pcid);
++			pcid = smp_tlb_pmap->pm_pcids[PCPU_GET(cpuid)].pm_pcid;
++			kcr3 = smp_tlb_pmap->pm_cr3 | pcid;
++			ucr3 = smp_tlb_pmap->pm_ucr3;
++			if (ucr3 != PMAP_NO_CR3) {
++				ucr3 |= PMAP_PCID_USER_PT | pcid;
++				pmap_pti_pcid_invalidate(ucr3, kcr3);
++			} else
++				load_cr3(kcr3);
+ 		}
+ 	}
+ 	PCPU_SET(smp_tlb_done, generation);
+ }
++
++void
++invlpg_invpcid_handler(void)
++{
++	struct invpcid_descr d;
++	uint32_t generation;
++
++#ifdef COUNT_XINVLTLB_HITS
++	xhits_pg[PCPU_GET(cpuid)]++;
++#endif /* COUNT_XINVLTLB_HITS */
++#ifdef COUNT_IPIS
++	(*ipi_invlpg_counts[PCPU_GET(cpuid)])++;
++#endif /* COUNT_IPIS */
++
++	generation = smp_tlb_generation;	/* Overlap with serialization */
++	invlpg(smp_tlb_addr1);
++	if (smp_tlb_pmap->pm_ucr3 != PMAP_NO_CR3) {
++		d.pcid = smp_tlb_pmap->pm_pcids[PCPU_GET(cpuid)].pm_pcid |
++		    PMAP_PCID_USER_PT;
++		d.pad = 0;
++		d.addr = smp_tlb_addr1;
++		invpcid(&d, INVPCID_ADDR);
++	}
++	PCPU_SET(smp_tlb_done, generation);
++}
++
++void
++invlpg_pcid_handler(void)
++{
++	uint64_t kcr3, ucr3;
++	uint32_t generation;
++	uint32_t pcid;
++
++#ifdef COUNT_XINVLTLB_HITS
++	xhits_pg[PCPU_GET(cpuid)]++;
++#endif /* COUNT_XINVLTLB_HITS */
++#ifdef COUNT_IPIS
++	(*ipi_invlpg_counts[PCPU_GET(cpuid)])++;
++#endif /* COUNT_IPIS */
++
++	generation = smp_tlb_generation;	/* Overlap with serialization */
++	invlpg(smp_tlb_addr1);
++	if (smp_tlb_pmap == PCPU_GET(curpmap) &&
++	    (ucr3 = smp_tlb_pmap->pm_ucr3) != PMAP_NO_CR3) {
++		pcid = smp_tlb_pmap->pm_pcids[PCPU_GET(cpuid)].pm_pcid;
++		kcr3 = smp_tlb_pmap->pm_cr3 | pcid | CR3_PCID_SAVE;
++		ucr3 |= pcid | PMAP_PCID_USER_PT | CR3_PCID_SAVE;
++		pmap_pti_pcid_invlpg(ucr3, kcr3, smp_tlb_addr1);
++	}
++	PCPU_SET(smp_tlb_done, generation);
++}
++
++void
++invlrng_invpcid_handler(void)
++{
++	struct invpcid_descr d;
++	vm_offset_t addr, addr2;
++	uint32_t generation;
++
++#ifdef COUNT_XINVLTLB_HITS
++	xhits_rng[PCPU_GET(cpuid)]++;
++#endif /* COUNT_XINVLTLB_HITS */
++#ifdef COUNT_IPIS
++	(*ipi_invlrng_counts[PCPU_GET(cpuid)])++;
++#endif /* COUNT_IPIS */
++
++	addr = smp_tlb_addr1;
++	addr2 = smp_tlb_addr2;
++	generation = smp_tlb_generation;	/* Overlap with serialization */
++	do {
++		invlpg(addr);
++		addr += PAGE_SIZE;
++	} while (addr < addr2);
++	if (smp_tlb_pmap->pm_ucr3 != PMAP_NO_CR3) {
++		d.pcid = smp_tlb_pmap->pm_pcids[PCPU_GET(cpuid)].pm_pcid |
++		    PMAP_PCID_USER_PT;
++		d.pad = 0;
++		d.addr = smp_tlb_addr1;
++		do {
++			invpcid(&d, INVPCID_ADDR);
++			d.addr += PAGE_SIZE;
++		} while (d.addr < addr2);
++	}
++	PCPU_SET(smp_tlb_done, generation);
++}
++
++void
++invlrng_pcid_handler(void)
++{
++	vm_offset_t addr, addr2;
++	uint64_t kcr3, ucr3;
++	uint32_t generation;
++	uint32_t pcid;
++
++#ifdef COUNT_XINVLTLB_HITS
++	xhits_rng[PCPU_GET(cpuid)]++;
++#endif /* COUNT_XINVLTLB_HITS */
++#ifdef COUNT_IPIS
++	(*ipi_invlrng_counts[PCPU_GET(cpuid)])++;
++#endif /* COUNT_IPIS */
++
++	addr = smp_tlb_addr1;
++	addr2 = smp_tlb_addr2;
++	generation = smp_tlb_generation;	/* Overlap with serialization */
++	do {
++		invlpg(addr);
++		addr += PAGE_SIZE;
++	} while (addr < addr2);
++	if (smp_tlb_pmap == PCPU_GET(curpmap) &&
++	    (ucr3 = smp_tlb_pmap->pm_ucr3) != PMAP_NO_CR3) {
++		pcid = smp_tlb_pmap->pm_pcids[PCPU_GET(cpuid)].pm_pcid;
++		kcr3 = smp_tlb_pmap->pm_cr3 | pcid | CR3_PCID_SAVE;
++		ucr3 |= pcid | PMAP_PCID_USER_PT | CR3_PCID_SAVE;
++		pmap_pti_pcid_invlrng(ucr3, kcr3, smp_tlb_addr1, addr2);
++	}
++	PCPU_SET(smp_tlb_done, generation);
++}
+Index: sys/amd64/amd64/pmap.c
+===================================================================
+--- sys/amd64/amd64/pmap.c	(revision 329241)
++++ sys/amd64/amd64/pmap.c	(working copy)
+@@ -9,11 +9,17 @@
+  * All rights reserved.
+  * Copyright (c) 2005-2010 Alan L. Cox <alc@cs.rice.edu>
+  * All rights reserved.
++ * Copyright (c) 2014-2018 The FreeBSD Foundation
++ * All rights reserved.
+  *
+  * This code is derived from software contributed to Berkeley by
+  * the Systems Programming Group of the University of Utah Computer
+  * Science Department and William Jolitz of UUNET Technologies Inc.
+  *
++ * Portions of this software were developed by
++ * Konstantin Belousov <kib@FreeBSD.org> under sponsorship from
++ * the FreeBSD Foundation.
++ *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+  * are met:
+@@ -147,6 +153,7 @@ __FBSDID("$FreeBSD$");
+ #ifdef SMP
+ #include <machine/smp.h>
+ #endif
++#include <machine/tss.h>
+ 
+ static __inline boolean_t
+ pmap_type_guest(pmap_t pmap)
+@@ -208,6 +215,8 @@ pmap_rw_bit(pmap_t pmap)
+ 	return (mask);
+ }
+ 
++static pt_entry_t pg_g;
++
+ static __inline pt_entry_t
+ pmap_global_bit(pmap_t pmap)
+ {
+@@ -215,7 +224,7 @@ pmap_global_bit(pmap_t pmap)
+ 
+ 	switch (pmap->pm_type) {
+ 	case PT_X86:
+-		mask = X86_PG_G;
++		mask = pg_g;
+ 		break;
+ 	case PT_RVI:
+ 	case PT_EPT:
+@@ -405,6 +414,15 @@ int invpcid_works = 0;
+ SYSCTL_INT(_vm_pmap, OID_AUTO, invpcid_works, CTLFLAG_RD, &invpcid_works, 0,
+     "Is the invpcid instruction available ?");
+ 
++int pti = 0;
++SYSCTL_INT(_vm_pmap, OID_AUTO, pti, CTLFLAG_RDTUN | CTLFLAG_NOFETCH,
++    &pti, 0,
++    "Page Table Isolation enabled");
++static vm_object_t pti_obj;
++static pml4_entry_t *pti_pml4;
++static vm_pindex_t pti_pg_idx;
++static bool pti_finalized;
++
+ static int
+ pmap_pcid_save_cnt_proc(SYSCTL_HANDLER_ARGS)
+ {
+@@ -639,6 +657,11 @@ static void pmap_promote_pde(pmap_t pmap, pd_entry
+ static boolean_t pmap_protect_pde(pmap_t pmap, pd_entry_t *pde, vm_offset_t sva,
+     vm_prot_t prot);
+ static void pmap_pte_attr(pt_entry_t *pte, int cache_bits, int mask);
++static void pmap_pti_add_kva_locked(vm_offset_t sva, vm_offset_t eva,
++    bool exec);
++static pdp_entry_t *pmap_pti_pdpe(vm_offset_t va);
++static pd_entry_t *pmap_pti_pde(vm_offset_t va);
++static void pmap_pti_wire_pte(void *pte);
+ static int pmap_remove_pde(pmap_t pmap, pd_entry_t *pdq, vm_offset_t sva,
+     struct spglist *free, struct rwlock **lockp);
+ static int pmap_remove_pte(pmap_t pmap, pt_entry_t *ptq, vm_offset_t sva,
+@@ -921,7 +944,7 @@ create_pagetables(vm_paddr_t *firstaddr)
+ 	/* XXX not fully used, underneath 2M pages */
+ 	pt_p = (pt_entry_t *)KPTphys;
+ 	for (i = 0; ptoa(i) < *firstaddr; i++)
+-		pt_p[i] = ptoa(i) | X86_PG_RW | X86_PG_V | X86_PG_G;
++		pt_p[i] = ptoa(i) | X86_PG_RW | X86_PG_V | pg_g;
+ 
+ 	/* Now map the page tables at their location within PTmap */
+ 	pd_p = (pd_entry_t *)KPDphys;
+@@ -932,7 +955,7 @@ create_pagetables(vm_paddr_t *firstaddr)
+ 	/* This replaces some of the KPTphys entries above */
+ 	for (i = 0; (i << PDRSHIFT) < *firstaddr; i++)
+ 		pd_p[i] = (i << PDRSHIFT) | X86_PG_RW | X86_PG_V | PG_PS |
+-		    X86_PG_G;
++		    pg_g;
+ 
+ 	/* And connect up the PD to the PDP (leaving room for L4 pages) */
+ 	pdp_p = (pdp_entry_t *)(KPDPphys + ptoa(KPML4I - KPML4BASE));
+@@ -952,7 +975,7 @@ create_pagetables(vm_paddr_t *firstaddr)
+ 	for (i = NPDEPG * ndm1g, j = 0; i < NPDEPG * ndmpdp; i++, j++) {
+ 		pd_p[j] = (vm_paddr_t)i << PDRSHIFT;
+ 		/* Preset PG_M and PG_A because demotion expects it. */
+-		pd_p[j] |= X86_PG_RW | X86_PG_V | PG_PS | X86_PG_G |
++		pd_p[j] |= X86_PG_RW | X86_PG_V | PG_PS | pg_g |
+ 		    X86_PG_M | X86_PG_A;
+ 	}
+ 	pdp_p = (pdp_entry_t *)DMPDPphys;
+@@ -959,7 +982,7 @@ create_pagetables(vm_paddr_t *firstaddr)
+ 	for (i = 0; i < ndm1g; i++) {
+ 		pdp_p[i] = (vm_paddr_t)i << PDPSHIFT;
+ 		/* Preset PG_M and PG_A because demotion expects it. */
+-		pdp_p[i] |= X86_PG_RW | X86_PG_V | PG_PS | X86_PG_G |
++		pdp_p[i] |= X86_PG_RW | X86_PG_V | PG_PS | pg_g |
+ 		    X86_PG_M | X86_PG_A;
+ 	}
+ 	for (j = 0; i < ndmpdp; i++, j++) {
+@@ -1002,6 +1025,9 @@ pmap_bootstrap(vm_paddr_t *firstaddr)
+ 	pt_entry_t *pte;
+ 	int i;
+ 
++	if (!pti)
++		pg_g = X86_PG_G;
++
+ 	/*
+ 	 * Create an initial set of page tables to run the kernel in.
+ 	 */
+@@ -1034,6 +1060,7 @@ pmap_bootstrap(vm_paddr_t *firstaddr)
+ 	PMAP_LOCK_INIT(kernel_pmap);
+ 	kernel_pmap->pm_pml4 = (pdp_entry_t *)PHYS_TO_DMAP(KPML4phys);
+ 	kernel_pmap->pm_cr3 = KPML4phys;
++	kernel_pmap->pm_ucr3 = PMAP_NO_CR3;
+ 	CPU_FILL(&kernel_pmap->pm_active);	/* don't allow deactivation */
+ 	TAILQ_INIT(&kernel_pmap->pm_pvchunk);
+ 	kernel_pmap->pm_flags = pmap_flags;
+@@ -1548,6 +1575,9 @@ void
+ pmap_invalidate_page(pmap_t pmap, vm_offset_t va)
+ {
+ 	cpuset_t *mask;
++	struct invpcid_descr d;
++	uint64_t kcr3, ucr3;
++	uint32_t pcid;
+ 	u_int cpuid, i;
+ 
+ 	if (pmap_type_guest(pmap)) {
+@@ -1564,9 +1594,32 @@ pmap_invalidate_page(pmap_t pmap, vm_offset_t va)
+ 		mask = &all_cpus;
+ 	} else {
+ 		cpuid = PCPU_GET(cpuid);
+-		if (pmap == PCPU_GET(curpmap))
++		if (pmap == PCPU_GET(curpmap)) {
+ 			invlpg(va);
+-		else if (pmap_pcid_enabled)
++			if (pmap_pcid_enabled && pmap->pm_ucr3 != PMAP_NO_CR3) {
++				/*
++				 * Disable context switching. pm_pcid
++				 * is recalculated on switch, which
++				 * might make us use wrong pcid below.
++				 */
++				critical_enter();
++				pcid = pmap->pm_pcids[cpuid].pm_pcid;
++
++				if (invpcid_works) {
++					d.pcid = pcid | PMAP_PCID_USER_PT;
++					d.pad = 0;
++					d.addr = va;
++					invpcid(&d, INVPCID_ADDR);
++				} else {
++					kcr3 = pmap->pm_cr3 | pcid |
++					    CR3_PCID_SAVE;
++					ucr3 = pmap->pm_ucr3 | pcid |
++					    PMAP_PCID_USER_PT | CR3_PCID_SAVE;
++					pmap_pti_pcid_invlpg(ucr3, kcr3, va);
++				}
++				critical_exit();
++			}
++		} else if (pmap_pcid_enabled)
+ 			pmap->pm_pcids[cpuid].pm_gen = 0;
+ 		if (pmap_pcid_enabled) {
+ 			CPU_FOREACH(i) {
+@@ -1576,7 +1629,7 @@ pmap_invalidate_page(pmap_t pmap, vm_offset_t va)
+ 		}
+ 		mask = &pmap->pm_active;
+ 	}
+-	smp_masked_invlpg(*mask, va);
++	smp_masked_invlpg(*mask, va, pmap);
+ 	sched_unpin();
+ }
+ 
+@@ -1587,7 +1640,10 @@ void
+ pmap_invalidate_range(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
+ {
+ 	cpuset_t *mask;
++	struct invpcid_descr d;
+ 	vm_offset_t addr;
++	uint64_t kcr3, ucr3;
++	uint32_t pcid;
+ 	u_int cpuid, i;
+ 
+ 	if (eva - sva >= PMAP_INVLPG_THRESHOLD) {
+@@ -1613,6 +1669,26 @@ pmap_invalidate_range(pmap_t pmap, vm_offset_t sva
+ 		if (pmap == PCPU_GET(curpmap)) {
+ 			for (addr = sva; addr < eva; addr += PAGE_SIZE)
+ 				invlpg(addr);
++			if (pmap_pcid_enabled && pmap->pm_ucr3 != PMAP_NO_CR3) {
++				critical_enter();
++				pcid = pmap->pm_pcids[cpuid].pm_pcid;
++				if (invpcid_works) {
++					d.pcid = pcid | PMAP_PCID_USER_PT;
++					d.pad = 0;
++					d.addr = sva;
++					for (; d.addr < eva; d.addr +=
++					    PAGE_SIZE)
++						invpcid(&d, INVPCID_ADDR);
++				} else {
++					kcr3 = pmap->pm_cr3 | pcid |
++					    CR3_PCID_SAVE;
++					ucr3 = pmap->pm_ucr3 | pcid |
++					    PMAP_PCID_USER_PT | CR3_PCID_SAVE;
++					pmap_pti_pcid_invlrng(ucr3, kcr3, sva,
++					    eva);
++				}
++				critical_exit();
++			}
+ 		} else if (pmap_pcid_enabled) {
+ 			pmap->pm_pcids[cpuid].pm_gen = 0;
+ 		}
+@@ -1624,7 +1700,7 @@ pmap_invalidate_range(pmap_t pmap, vm_offset_t sva
+ 		}
+ 		mask = &pmap->pm_active;
+ 	}
+-	smp_masked_invlpg_range(*mask, sva, eva);
++	smp_masked_invlpg_range(*mask, sva, eva, pmap);
+ 	sched_unpin();
+ }
+ 
+@@ -1633,6 +1709,8 @@ pmap_invalidate_all(pmap_t pmap)
+ {
+ 	cpuset_t *mask;
+ 	struct invpcid_descr d;
++	uint64_t kcr3, ucr3;
++	uint32_t pcid;
+ 	u_int cpuid, i;
+ 
+ 	if (pmap_type_guest(pmap)) {
+@@ -1656,15 +1734,29 @@ pmap_invalidate_all(pmap_t pmap)
+ 		cpuid = PCPU_GET(cpuid);
+ 		if (pmap == PCPU_GET(curpmap)) {
+ 			if (pmap_pcid_enabled) {
++				critical_enter();
++				pcid = pmap->pm_pcids[cpuid].pm_pcid;
+ 				if (invpcid_works) {
+-					d.pcid = pmap->pm_pcids[cpuid].pm_pcid;
++					d.pcid = pcid;
+ 					d.pad = 0;
+ 					d.addr = 0;
+ 					invpcid(&d, INVPCID_CTX);
++					if (pmap->pm_ucr3 != PMAP_NO_CR3) {
++						d.pcid |= PMAP_PCID_USER_PT;
++						invpcid(&d, INVPCID_CTX);
++					}
+ 				} else {
+-					load_cr3(pmap->pm_cr3 | pmap->pm_pcids
+-					    [PCPU_GET(cpuid)].pm_pcid);
++					kcr3 = pmap->pm_cr3 | pcid;
++					ucr3 = pmap->pm_ucr3;
++					if (ucr3 != PMAP_NO_CR3) {
++						ucr3 |= pcid | PMAP_PCID_USER_PT;
++						pmap_pti_pcid_invalidate(ucr3,
++						    kcr3);
++					} else {
++						load_cr3(kcr3);
++					}
+ 				}
++				critical_exit();
+ 			} else {
+ 				invltlb();
+ 			}
+@@ -1769,6 +1861,9 @@ pmap_update_pde(pmap_t pmap, vm_offset_t va, pd_en
+ void
+ pmap_invalidate_page(pmap_t pmap, vm_offset_t va)
+ {
++	struct invpcid_descr d;
++	uint64_t kcr3, ucr3;
++	uint32_t pcid;
+ 
+ 	if (pmap->pm_type == PT_RVI || pmap->pm_type == PT_EPT) {
+ 		pmap->pm_eptgen++;
+@@ -1777,9 +1872,26 @@ pmap_invalidate_page(pmap_t pmap, vm_offset_t va)
+ 	KASSERT(pmap->pm_type == PT_X86,
+ 	    ("pmap_invalidate_range: unknown type %d", pmap->pm_type));
+ 
+-	if (pmap == kernel_pmap || pmap == PCPU_GET(curpmap))
++	if (pmap == kernel_pmap || pmap == PCPU_GET(curpmap)) {
+ 		invlpg(va);
+-	else if (pmap_pcid_enabled)
++		if (pmap == PCPU_GET(curpmap) && pmap_pcid_enabled &&
++		    pmap->pm_ucr3 != PMAP_NO_CR3) {
++			critical_enter();
++			pcid = pmap->pm_pcids[0].pm_pcid;
++			if (invpcid_works) {
++				d.pcid = pcid | PMAP_PCID_USER_PT;
++				d.pad = 0;
++				d.addr = va;
++				invpcid(&d, INVPCID_ADDR);
++			} else {
++				kcr3 = pmap->pm_cr3 | pcid | CR3_PCID_SAVE;
++				ucr3 = pmap->pm_ucr3 | pcid |
++				    PMAP_PCID_USER_PT | CR3_PCID_SAVE;
++				pmap_pti_pcid_invlpg(ucr3, kcr3, va);
++			}
++			critical_exit();
++		}
++	} else if (pmap_pcid_enabled)
+ 		pmap->pm_pcids[0].pm_gen = 0;
+ }
+ 
+@@ -1786,7 +1898,9 @@ pmap_invalidate_page(pmap_t pmap, vm_offset_t va)
+ void
+ pmap_invalidate_range(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
+ {
++	struct invpcid_descr d;
+ 	vm_offset_t addr;
++	uint64_t kcr3, ucr3;
+ 
+ 	if (pmap->pm_type == PT_RVI || pmap->pm_type == PT_EPT) {
+ 		pmap->pm_eptgen++;
+@@ -1798,6 +1912,25 @@ pmap_invalidate_range(pmap_t pmap, vm_offset_t sva
+ 	if (pmap == kernel_pmap || pmap == PCPU_GET(curpmap)) {
+ 		for (addr = sva; addr < eva; addr += PAGE_SIZE)
+ 			invlpg(addr);
++		if (pmap == PCPU_GET(curpmap) && pmap_pcid_enabled &&
++		    pmap->pm_ucr3 != PMAP_NO_CR3) {
++			critical_enter();
++			if (invpcid_works) {
++				d.pcid = pmap->pm_pcids[0].pm_pcid |
++				    PMAP_PCID_USER_PT;
++				d.pad = 0;
++				d.addr = sva;
++				for (; d.addr < eva; d.addr += PAGE_SIZE)
++					invpcid(&d, INVPCID_ADDR);
++			} else {
++				kcr3 = pmap->pm_cr3 | pmap->pm_pcids[0].
++				    pm_pcid | CR3_PCID_SAVE;
++				ucr3 = pmap->pm_ucr3 | pmap->pm_pcids[0].
++				    pm_pcid | PMAP_PCID_USER_PT | CR3_PCID_SAVE;
++				pmap_pti_pcid_invlrng(ucr3, kcr3, sva, eva);
++			}
++			critical_exit();
++		}
+ 	} else if (pmap_pcid_enabled) {
+ 		pmap->pm_pcids[0].pm_gen = 0;
+ 	}
+@@ -1807,6 +1940,7 @@ void
+ pmap_invalidate_all(pmap_t pmap)
+ {
+ 	struct invpcid_descr d;
++	uint64_t kcr3, ucr3;
+ 
+ 	if (pmap->pm_type == PT_RVI || pmap->pm_type == PT_EPT) {
+ 		pmap->pm_eptgen++;
+@@ -1824,15 +1958,26 @@ pmap_invalidate_all(pmap_t pmap)
+ 		}
+ 	} else if (pmap == PCPU_GET(curpmap)) {
+ 		if (pmap_pcid_enabled) {
++			critical_enter();
+ 			if (invpcid_works) {
+ 				d.pcid = pmap->pm_pcids[0].pm_pcid;
+ 				d.pad = 0;
+ 				d.addr = 0;
+ 				invpcid(&d, INVPCID_CTX);
++				if (pmap->pm_ucr3 != PMAP_NO_CR3) {
++					d.pcid |= PMAP_PCID_USER_PT;
++					invpcid(&d, INVPCID_CTX);
++				}
+ 			} else {
+-				load_cr3(pmap->pm_cr3 | pmap->pm_pcids[0].
+-				    pm_pcid);
++				kcr3 = pmap->pm_cr3 | pmap->pm_pcids[0].pm_pcid;
++				if (pmap->pm_ucr3 != PMAP_NO_CR3) {
++					ucr3 = pmap->pm_ucr3 | pmap->pm_pcids[
++					    0].pm_pcid | PMAP_PCID_USER_PT;
++					pmap_pti_pcid_invalidate(ucr3, kcr3);
++				} else
++					load_cr3(kcr3);
+ 			}
++			critical_exit();
+ 		} else {
+ 			invltlb();
+ 		}
+@@ -2114,7 +2259,7 @@ pmap_kenter(vm_offset_t va, vm_paddr_t pa)
+ 	pt_entry_t *pte;
+ 
+ 	pte = vtopte(va);
+-	pte_store(pte, pa | X86_PG_RW | X86_PG_V | X86_PG_G);
++	pte_store(pte, pa | X86_PG_RW | X86_PG_V | pg_g);
+ }
+ 
+ static __inline void
+@@ -2125,7 +2270,7 @@ pmap_kenter_attr(vm_offset_t va, vm_paddr_t pa, in
+ 
+ 	pte = vtopte(va);
+ 	cache_bits = pmap_cache_bits(kernel_pmap, mode, 0);
+-	pte_store(pte, pa | X86_PG_RW | X86_PG_V | X86_PG_G | cache_bits);
++	pte_store(pte, pa | X86_PG_RW | X86_PG_V | pg_g | cache_bits);
+ }
+ 
+ /*
+@@ -2185,7 +2330,7 @@ pmap_qenter(vm_offset_t sva, vm_page_t *ma, int co
+ 		pa = VM_PAGE_TO_PHYS(m) | cache_bits;
+ 		if ((*pte & (PG_FRAME | X86_PG_PTE_CACHE)) != pa) {
+ 			oldpte |= *pte;
+-			pte_store(pte, pa | X86_PG_G | X86_PG_RW | X86_PG_V);
++			pte_store(pte, pa | pg_g | X86_PG_RW | X86_PG_V);
+ 		}
+ 		pte++;
+ 	}
+@@ -2306,6 +2451,10 @@ _pmap_unwire_ptp(pmap_t pmap, vm_offset_t va, vm_p
+ 		pml4_entry_t *pml4;
+ 		pml4 = pmap_pml4e(pmap, va);
+ 		*pml4 = 0;
++		if (pmap->pm_pml4u != NULL && va <= VM_MAXUSER_ADDRESS) {
++			pml4 = &pmap->pm_pml4u[pmap_pml4e_index(va)];
++			*pml4 = 0;
++		}
+ 	} else if (m->pindex >= NUPDE) {
+ 		/* PD page */
+ 		pdp_entry_t *pdp;
+@@ -2364,7 +2513,10 @@ pmap_pinit0(pmap_t pmap)
+ 
+ 	PMAP_LOCK_INIT(pmap);
+ 	pmap->pm_pml4 = (pml4_entry_t *)PHYS_TO_DMAP(KPML4phys);
++	pmap->pm_pml4u = NULL;
+ 	pmap->pm_cr3 = KPML4phys;
++	/* hack to keep pmap_pti_pcid_invalidate() alive */
++	pmap->pm_ucr3 = PMAP_NO_CR3;
+ 	pmap->pm_root.rt_root = 0;
+ 	CPU_ZERO(&pmap->pm_active);
+ 	TAILQ_INIT(&pmap->pm_pvchunk);
+@@ -2373,6 +2525,8 @@ pmap_pinit0(pmap_t pmap)
+ 	CPU_FOREACH(i) {
+ 		pmap->pm_pcids[i].pm_pcid = PMAP_PCID_NONE;
+ 		pmap->pm_pcids[i].pm_gen = 0;
++		if (!pti)
++			__pcpu[i].pc_kcr3 = PMAP_NO_CR3;
+ 	}
+ 	PCPU_SET(curpmap, kernel_pmap);
+ 	pmap_activate(curthread);
+@@ -2402,6 +2556,17 @@ pmap_pinit_pml4(vm_page_t pml4pg)
+ 	    X86_PG_A | X86_PG_M;
+ }
+ 
++static void
++pmap_pinit_pml4_pti(vm_page_t pml4pg)
++{
++	pml4_entry_t *pm_pml4;
++	int i;
++
++	pm_pml4 = (pml4_entry_t *)PHYS_TO_DMAP(VM_PAGE_TO_PHYS(pml4pg));
++	for (i = 0; i < NPML4EPG; i++)
++		pm_pml4[i] = pti_pml4[i];
++}
++
+ /*
+  * Initialize a preallocated and zeroed pmap structure,
+  * such as one in a vmspace structure.
+@@ -2409,7 +2574,7 @@ pmap_pinit_pml4(vm_page_t pml4pg)
+ int
+ pmap_pinit_type(pmap_t pmap, enum pmap_type pm_type, int flags)
+ {
+-	vm_page_t pml4pg;
++	vm_page_t pml4pg, pml4pgu;
+ 	vm_paddr_t pml4phys;
+ 	int i;
+ 
+@@ -2425,8 +2590,11 @@ pmap_pinit_type(pmap_t pmap, enum pmap_type pm_typ
+ 		pmap->pm_pcids[i].pm_pcid = PMAP_PCID_NONE;
+ 		pmap->pm_pcids[i].pm_gen = 0;
+ 	}
+-	pmap->pm_cr3 = ~0;	/* initialize to an invalid value */
++	pmap->pm_cr3 = PMAP_NO_CR3;	/* initialize to an invalid value */
++	pmap->pm_ucr3 = PMAP_NO_CR3;
++	pmap->pm_pml4u = NULL;
+ 
++	pmap->pm_type = pm_type;
+ 	if ((pml4pg->flags & PG_ZERO) == 0)
+ 		pagezero(pmap->pm_pml4);
+ 
+@@ -2434,10 +2602,19 @@ pmap_pinit_type(pmap_t pmap, enum pmap_type pm_typ
+ 	 * Do not install the host kernel mappings in the nested page
+ 	 * tables. These mappings are meaningless in the guest physical
+ 	 * address space.
++	 * Install minimal kernel mappings in PTI case.
+ 	 */
+-	if ((pmap->pm_type = pm_type) == PT_X86) {
++	if (pm_type == PT_X86) {
+ 		pmap->pm_cr3 = pml4phys;
+ 		pmap_pinit_pml4(pml4pg);
++		if (pti) {
++			pml4pgu = vm_page_alloc(NULL, 0, VM_ALLOC_NORMAL |
++			    VM_ALLOC_NOOBJ | VM_ALLOC_WIRED | VM_ALLOC_WAITOK);
++			pmap->pm_pml4u = (pml4_entry_t *)PHYS_TO_DMAP(
++			    VM_PAGE_TO_PHYS(pml4pgu));
++			pmap_pinit_pml4_pti(pml4pgu);
++			pmap->pm_ucr3 = VM_PAGE_TO_PHYS(pml4pgu);
++		}
+ 	}
+ 
+ 	pmap->pm_root.rt_root = 0;
+@@ -2509,7 +2686,7 @@ _pmap_allocpte(pmap_t pmap, vm_pindex_t ptepindex,
+ 	 */
+ 
+ 	if (ptepindex >= (NUPDE + NUPDPE)) {
+-		pml4_entry_t *pml4;
++		pml4_entry_t *pml4, *pml4u;
+ 		vm_pindex_t pml4index;
+ 
+ 		/* Wire up a new PDPE page */
+@@ -2516,7 +2693,21 @@ _pmap_allocpte(pmap_t pmap, vm_pindex_t ptepindex,
+ 		pml4index = ptepindex - (NUPDE + NUPDPE);
+ 		pml4 = &pmap->pm_pml4[pml4index];
+ 		*pml4 = VM_PAGE_TO_PHYS(m) | PG_U | PG_RW | PG_V | PG_A | PG_M;
++		if (pmap->pm_pml4u != NULL && pml4index < NUPML4E) {
++			/*
++			 * PTI: Make all user-space mappings in the
++			 * kernel-mode page table no-execute so that
++			 * we detect any programming errors that leave
++			 * the kernel-mode page table active on return
++			 * to user space.
++			 */
++			*pml4 |= pg_nx;
+ 
++			pml4u = &pmap->pm_pml4u[pml4index];
++			*pml4u = VM_PAGE_TO_PHYS(m) | PG_U | PG_RW | PG_V |
++			    PG_A | PG_M;
++		}
++
+ 	} else if (ptepindex >= NUPDE) {
+ 		vm_pindex_t pml4index;
+ 		vm_pindex_t pdpindex;
+@@ -2716,6 +2907,13 @@ pmap_release(pmap_t pmap)
+ 	m->wire_count--;
+ 	atomic_subtract_int(&vm_cnt.v_wire_count, 1);
+ 	vm_page_free_zero(m);
++
++	if (pmap->pm_pml4u != NULL) {
++		m = PHYS_TO_VM_PAGE(DMAP_TO_PHYS((vm_offset_t)pmap->pm_pml4u));
++		m->wire_count--;
++		atomic_subtract_int(&vm_cnt.v_wire_count, 1);
++		vm_page_free(m);
++	}
+ }
+ 
+ static int
+@@ -7075,13 +7273,15 @@ pmap_pcid_alloc(pmap_t pmap, u_int cpuid)
+ 
+ 	CRITICAL_ASSERT(curthread);
+ 	gen = PCPU_GET(pcid_gen);
+-	if (pmap->pm_pcids[cpuid].pm_pcid == PMAP_PCID_KERN ||
+-	    pmap->pm_pcids[cpuid].pm_gen == gen)
++	if (!pti && (pmap->pm_pcids[cpuid].pm_pcid == PMAP_PCID_KERN ||
++	    pmap->pm_pcids[cpuid].pm_gen == gen))
+ 		return (CR3_PCID_SAVE);
+ 	pcid_next = PCPU_GET(pcid_next);
+-	KASSERT(pcid_next <= PMAP_PCID_OVERMAX, ("cpu %d pcid_next %#x",
+-	    cpuid, pcid_next));
+-	if (pcid_next == PMAP_PCID_OVERMAX) {
++	KASSERT((!pti && pcid_next <= PMAP_PCID_OVERMAX) ||
++	    (pti && pcid_next <= PMAP_PCID_OVERMAX_KERN),
++	    ("cpu %d pcid_next %#x", cpuid, pcid_next));
++	if ((!pti && pcid_next == PMAP_PCID_OVERMAX) ||
++	    (pti && pcid_next == PMAP_PCID_OVERMAX_KERN)) {
+ 		new_gen = gen + 1;
+ 		if (new_gen == 0)
+ 			new_gen = 1;
+@@ -7100,7 +7300,8 @@ void
+ pmap_activate_sw(struct thread *td)
+ {
+ 	pmap_t oldpmap, pmap;
+-	uint64_t cached, cr3;
++	struct invpcid_descr d;
++	uint64_t cached, cr3, kcr3, ucr3;
+ 	register_t rflags;
+ 	u_int cpuid;
+ 
+@@ -7156,11 +7357,41 @@ pmap_activate_sw(struct thread *td)
+ 				PCPU_INC(pm_save_cnt);
+ 		}
+ 		PCPU_SET(curpmap, pmap);
++		if (pti) {
++			kcr3 = pmap->pm_cr3 | pmap->pm_pcids[cpuid].pm_pcid;
++			ucr3 = pmap->pm_ucr3 | pmap->pm_pcids[cpuid].pm_pcid |
++			    PMAP_PCID_USER_PT;
++
++			/*
++			 * Manually invalidate translations cached
++			 * from the user page table, which are not
++			 * flushed by reload of cr3 with the kernel
++			 * page table pointer above.
++			 */
++			if (pmap->pm_ucr3 != PMAP_NO_CR3) {
++				if (invpcid_works) {
++					d.pcid = PMAP_PCID_USER_PT |
++					    pmap->pm_pcids[cpuid].pm_pcid;
++					d.pad = 0;
++					d.addr = 0;
++					invpcid(&d, INVPCID_CTX);
++				} else {
++					pmap_pti_pcid_invalidate(ucr3, kcr3);
++				}
++			}
++
++			PCPU_SET(kcr3, kcr3 | CR3_PCID_SAVE);
++			PCPU_SET(ucr3, ucr3 | CR3_PCID_SAVE);
++		}
+ 		if (!invpcid_works)
+ 			intr_restore(rflags);
+ 	} else if (cr3 != pmap->pm_cr3) {
+ 		load_cr3(pmap->pm_cr3);
+ 		PCPU_SET(curpmap, pmap);
++		if (pti) {
++			PCPU_SET(kcr3, pmap->pm_cr3);
++			PCPU_SET(ucr3, pmap->pm_ucr3);
++		}
+ 	}
+ #ifdef SMP
+ 	CPU_CLR_ATOMIC(cpuid, &oldpmap->pm_active);
+@@ -7484,6 +7715,291 @@ pmap_quick_remove_page(vm_offset_t addr)
+ 	mtx_unlock_spin(&qframe_mtx);
+ }
+ 
++static vm_page_t
++pmap_pti_alloc_page(void)
++{
++	vm_page_t m;
++
++	VM_OBJECT_ASSERT_WLOCKED(pti_obj);
++	m = vm_page_grab(pti_obj, pti_pg_idx++, VM_ALLOC_NOBUSY |
++	    VM_ALLOC_WIRED | VM_ALLOC_ZERO);
++	return (m);
++}
++
++static bool
++pmap_pti_free_page(vm_page_t m)
++{
++
++	KASSERT(m->wire_count > 0, ("page %p not wired", m));
++	m->wire_count--;
++	if (m->wire_count != 0)
++		return (false);
++	atomic_subtract_int(&vm_cnt.v_wire_count, 1);
++	vm_page_free_zero(m);
++	return (true);
++}
++
++static void
++pmap_pti_init(void)
++{
++	vm_page_t pml4_pg;
++	pdp_entry_t *pdpe;
++	vm_offset_t va;
++	int i;
++
++	if (!pti)
++		return;
++	pti_obj = vm_pager_allocate(OBJT_PHYS, NULL, 0, VM_PROT_ALL, 0, NULL);
++	VM_OBJECT_WLOCK(pti_obj);
++	pml4_pg = pmap_pti_alloc_page();
++	pti_pml4 = (pml4_entry_t *)PHYS_TO_DMAP(VM_PAGE_TO_PHYS(pml4_pg));
++	for (va = VM_MIN_KERNEL_ADDRESS; va <= VM_MAX_KERNEL_ADDRESS &&
++	    va >= VM_MIN_KERNEL_ADDRESS && va > NBPML4; va += NBPML4) {
++		pdpe = pmap_pti_pdpe(va);
++		pmap_pti_wire_pte(pdpe);
++	}
++	pmap_pti_add_kva_locked((vm_offset_t)&__pcpu[0],
++	    (vm_offset_t)&__pcpu[0] + sizeof(__pcpu[0]) * MAXCPU, false);
++	pmap_pti_add_kva_locked((vm_offset_t)gdt, (vm_offset_t)gdt +
++	    sizeof(struct user_segment_descriptor) * NGDT * MAXCPU, false);
++	pmap_pti_add_kva_locked((vm_offset_t)idt, (vm_offset_t)idt +
++	    sizeof(struct gate_descriptor) * NIDT, false);
++	pmap_pti_add_kva_locked((vm_offset_t)common_tss,
++	    (vm_offset_t)common_tss + sizeof(struct amd64tss) * MAXCPU, false);
++	CPU_FOREACH(i) {
++		/* Doublefault stack IST 1 */
++		va = common_tss[i].tss_ist1;
++		pmap_pti_add_kva_locked(va - PAGE_SIZE, va, false);
++		/* NMI stack IST 2 */
++		va = common_tss[i].tss_ist2 + sizeof(struct nmi_pcpu);
++		pmap_pti_add_kva_locked(va - PAGE_SIZE, va, false);
++		/* MC# stack IST 3 */
++		va = common_tss[i].tss_ist3 + sizeof(struct nmi_pcpu);
++		pmap_pti_add_kva_locked(va - PAGE_SIZE, va, false);
++	}
++	pmap_pti_add_kva_locked((vm_offset_t)kernphys + KERNBASE,
++	    (vm_offset_t)etext, true);
++	pti_finalized = true;
++	VM_OBJECT_WUNLOCK(pti_obj);
++}
++SYSINIT(pmap_pti, SI_SUB_CPU + 1, SI_ORDER_ANY, pmap_pti_init, NULL);
++
++static pdp_entry_t *
++pmap_pti_pdpe(vm_offset_t va)
++{
++	pml4_entry_t *pml4e;
++	pdp_entry_t *pdpe;
++	vm_page_t m;
++	vm_pindex_t pml4_idx;
++	vm_paddr_t mphys;
++
++	VM_OBJECT_ASSERT_WLOCKED(pti_obj);
++
++	pml4_idx = pmap_pml4e_index(va);
++	pml4e = &pti_pml4[pml4_idx];
++	m = NULL;
++	if (*pml4e == 0) {
++		if (pti_finalized)
++			panic("pml4 alloc after finalization\n");
++		m = pmap_pti_alloc_page();
++		if (*pml4e != 0) {
++			pmap_pti_free_page(m);
++			mphys = *pml4e & ~PAGE_MASK;
++		} else {
++			mphys = VM_PAGE_TO_PHYS(m);
++			*pml4e = mphys | X86_PG_RW | X86_PG_V;
++		}
++	} else {
++		mphys = *pml4e & ~PAGE_MASK;
++	}
++	pdpe = (pdp_entry_t *)PHYS_TO_DMAP(mphys) + pmap_pdpe_index(va);
++	return (pdpe);
++}
++
++static void
++pmap_pti_wire_pte(void *pte)
++{
++	vm_page_t m;
++
++	VM_OBJECT_ASSERT_WLOCKED(pti_obj);
++	m = PHYS_TO_VM_PAGE(DMAP_TO_PHYS((uintptr_t)pte));
++	m->wire_count++;
++}
++
++static void
++pmap_pti_unwire_pde(void *pde, bool only_ref)
++{
++	vm_page_t m;
++
++	VM_OBJECT_ASSERT_WLOCKED(pti_obj);
++	m = PHYS_TO_VM_PAGE(DMAP_TO_PHYS((uintptr_t)pde));
++	MPASS(m->wire_count > 0);
++	MPASS(only_ref || m->wire_count > 1);
++	pmap_pti_free_page(m);
++}
++
++static void
++pmap_pti_unwire_pte(void *pte, vm_offset_t va)
++{
++	vm_page_t m;
++	pd_entry_t *pde;
++
++	VM_OBJECT_ASSERT_WLOCKED(pti_obj);
++	m = PHYS_TO_VM_PAGE(DMAP_TO_PHYS((uintptr_t)pte));
++	MPASS(m->wire_count > 0);
++	if (pmap_pti_free_page(m)) {
++		pde = pmap_pti_pde(va);
++		MPASS((*pde & (X86_PG_PS | X86_PG_V)) == X86_PG_V);
++		*pde = 0;
++		pmap_pti_unwire_pde(pde, false);
++	}
++}
++
++static pd_entry_t *
++pmap_pti_pde(vm_offset_t va)
++{
++	pdp_entry_t *pdpe;
++	pd_entry_t *pde;
++	vm_page_t m;
++	vm_pindex_t pd_idx;
++	vm_paddr_t mphys;
++
++	VM_OBJECT_ASSERT_WLOCKED(pti_obj);
++
++	pdpe = pmap_pti_pdpe(va);
++	if (*pdpe == 0) {
++		m = pmap_pti_alloc_page();
++		if (*pdpe != 0) {
++			pmap_pti_free_page(m);
++			MPASS((*pdpe & X86_PG_PS) == 0);
++			mphys = *pdpe & ~PAGE_MASK;
++		} else {
++			mphys =  VM_PAGE_TO_PHYS(m);
++			*pdpe = mphys | X86_PG_RW | X86_PG_V;
++		}
++	} else {
++		MPASS((*pdpe & X86_PG_PS) == 0);
++		mphys = *pdpe & ~PAGE_MASK;
++	}
++
++	pde = (pd_entry_t *)PHYS_TO_DMAP(mphys);
++	pd_idx = pmap_pde_index(va);
++	pde += pd_idx;
++	return (pde);
++}
++
++static pt_entry_t *
++pmap_pti_pte(vm_offset_t va, bool *unwire_pde)
++{
++	pd_entry_t *pde;
++	pt_entry_t *pte;
++	vm_page_t m;
++	vm_paddr_t mphys;
++
++	VM_OBJECT_ASSERT_WLOCKED(pti_obj);
++
++	pde = pmap_pti_pde(va);
++	if (unwire_pde != NULL) {
++		*unwire_pde = true;
++		pmap_pti_wire_pte(pde);
++	}
++	if (*pde == 0) {
++		m = pmap_pti_alloc_page();
++		if (*pde != 0) {
++			pmap_pti_free_page(m);
++			MPASS((*pde & X86_PG_PS) == 0);
++			mphys = *pde & ~(PAGE_MASK | pg_nx);
++		} else {
++			mphys = VM_PAGE_TO_PHYS(m);
++			*pde = mphys | X86_PG_RW | X86_PG_V;
++			if (unwire_pde != NULL)
++				*unwire_pde = false;
++		}
++	} else {
++		MPASS((*pde & X86_PG_PS) == 0);
++		mphys = *pde & ~(PAGE_MASK | pg_nx);
++	}
++
++	pte = (pt_entry_t *)PHYS_TO_DMAP(mphys);
++	pte += pmap_pte_index(va);
++
++	return (pte);
++}
++
++static void
++pmap_pti_add_kva_locked(vm_offset_t sva, vm_offset_t eva, bool exec)
++{
++	vm_paddr_t pa;
++	pd_entry_t *pde;
++	pt_entry_t *pte, ptev;
++	bool unwire_pde;
++
++	VM_OBJECT_ASSERT_WLOCKED(pti_obj);
++
++	sva = trunc_page(sva);
++	MPASS(sva > VM_MAXUSER_ADDRESS);
++	eva = round_page(eva);
++	MPASS(sva < eva);
++	for (; sva < eva; sva += PAGE_SIZE) {
++		pte = pmap_pti_pte(sva, &unwire_pde);
++		pa = pmap_kextract(sva);
++		ptev = pa | X86_PG_RW | X86_PG_V | X86_PG_A |
++		    (exec ? 0 : pg_nx) | pmap_cache_bits(kernel_pmap,
++		    VM_MEMATTR_DEFAULT, FALSE);
++		if (*pte == 0) {
++			pte_store(pte, ptev);
++			pmap_pti_wire_pte(pte);
++		} else {
++			KASSERT(!pti_finalized,
++			    ("pti overlap after fin %#lx %#lx %#lx",
++			    sva, *pte, ptev));
++			KASSERT(*pte == ptev,
++			    ("pti non-identical pte after fin %#lx %#lx %#lx",
++			    sva, *pte, ptev));
++		}
++		if (unwire_pde) {
++			pde = pmap_pti_pde(sva);
++			pmap_pti_unwire_pde(pde, true);
++		}
++	}
++}
++
++void
++pmap_pti_add_kva(vm_offset_t sva, vm_offset_t eva, bool exec)
++{
++
++	if (!pti)
++		return;
++	VM_OBJECT_WLOCK(pti_obj);
++	pmap_pti_add_kva_locked(sva, eva, exec);
++	VM_OBJECT_WUNLOCK(pti_obj);
++}
++
++void
++pmap_pti_remove_kva(vm_offset_t sva, vm_offset_t eva)
++{
++	pt_entry_t *pte;
++	vm_offset_t va;
++
++	if (!pti)
++		return;
++	sva = rounddown2(sva, PAGE_SIZE);
++	MPASS(sva > VM_MAXUSER_ADDRESS);
++	eva = roundup2(eva, PAGE_SIZE);
++	MPASS(sva < eva);
++	VM_OBJECT_WLOCK(pti_obj);
++	for (va = sva; va < eva; va += PAGE_SIZE) {
++		pte = pmap_pti_pte(va, NULL);
++		KASSERT((*pte & X86_PG_V) != 0,
++		    ("invalid pte va %#lx pte %#lx pt %#lx", va,
++		    (u_long)pte, *pte));
++		pte_clear(pte);
++		pmap_pti_unwire_pte(pte, va);
++	}
++	pmap_invalidate_range(kernel_pmap, sva, eva);
++	VM_OBJECT_WUNLOCK(pti_obj);
++}
++
+ #include "opt_ddb.h"
+ #ifdef DDB
+ #include <ddb/ddb.h>
+Index: sys/amd64/amd64/support.S
+===================================================================
+--- sys/amd64/amd64/support.S	(revision 329241)
++++ sys/amd64/amd64/support.S	(working copy)
+@@ -33,6 +33,7 @@
+ #include "opt_ddb.h"
+ 
+ #include <machine/asmacros.h>
++#include <machine/specialreg.h>
+ #include <machine/pmap.h>
+ 
+ #include "assym.s"
+@@ -776,3 +777,115 @@ msr_onfault:
+ 	movl	$EFAULT,%eax
+ 	POP_FRAME_POINTER
+ 	ret
++
++/*
++ * void pmap_pti_pcid_invalidate(uint64_t ucr3, uint64_t kcr3);
++ * Invalidates address space addressed by ucr3, then returns to kcr3.
++ * Done in assembler to ensure no other memory accesses happen while
++ * on ucr3.
++ */
++	ALIGN_TEXT
++ENTRY(pmap_pti_pcid_invalidate)
++	pushfq
++	cli
++	movq	%rdi,%cr3	/* to user page table */
++	movq	%rsi,%cr3	/* back to kernel */
++	popfq
++	retq
++
++/*
++ * void pmap_pti_pcid_invlpg(uint64_t ucr3, uint64_t kcr3, vm_offset_t va);
++ * Invalidates virtual address va in address space ucr3, then returns to kcr3.
++ */
++	ALIGN_TEXT
++ENTRY(pmap_pti_pcid_invlpg)
++	pushfq
++	cli
++	movq	%rdi,%cr3	/* to user page table */
++	invlpg	(%rdx)
++	movq	%rsi,%cr3	/* back to kernel */
++	popfq
++	retq
++
++/*
++ * void pmap_pti_pcid_invlrng(uint64_t ucr3, uint64_t kcr3, vm_offset_t sva,
++ *     vm_offset_t eva);
++ * Invalidates virtual addresses between sva and eva in address space ucr3,
++ * then returns to kcr3.
++ */
++	ALIGN_TEXT
++ENTRY(pmap_pti_pcid_invlrng)
++	pushfq
++	cli
++	movq	%rdi,%cr3	/* to user page table */
++1:	invlpg	(%rdx)
++	addq	$PAGE_SIZE,%rdx
++	cmpq	%rdx,%rcx
++	ja	1b
++	movq	%rsi,%cr3	/* back to kernel */
++	popfq
++	retq
++
++	.altmacro
++	.macro	ibrs_seq_label l
++handle_ibrs_\l:
++	.endm
++	.macro	ibrs_call_label l
++	call	handle_ibrs_\l
++	.endm
++	.macro	ibrs_seq count
++	ll=1
++	.rept	\count
++	ibrs_call_label	%(ll)
++	nop
++	ibrs_seq_label %(ll)
++	addq	$8,%rsp
++	ll=ll+1
++	.endr
++	.endm
++
++/* all callers already saved %rax, %rdx, and %rcx */
++ENTRY(handle_ibrs_entry)
++	cmpb	$0,hw_ibrs_active(%rip)
++	je	1f
++	movl	$MSR_IA32_SPEC_CTRL,%ecx
++	movl	$(IA32_SPEC_CTRL_IBRS|IA32_SPEC_CTRL_STIBP),%eax
++	movl	$(IA32_SPEC_CTRL_IBRS|IA32_SPEC_CTRL_STIBP)>>32,%edx
++	wrmsr
++	movb	$1,PCPU(IBPB_SET)
++	testl	$CPUID_STDEXT_SMEP,cpu_stdext_feature(%rip)
++	jne	1f
++	ibrs_seq 32
++1:	ret
++END(handle_ibrs_entry)
++
++ENTRY(handle_ibrs_exit)
++	cmpb	$0,PCPU(IBPB_SET)
++	je	1f
++	movl	$MSR_IA32_SPEC_CTRL,%ecx
++	xorl	%eax,%eax
++	xorl	%edx,%edx
++	wrmsr
++	movb	$0,PCPU(IBPB_SET)
++1:	ret
++END(handle_ibrs_exit)
++
++/* registers-neutral version, but needs stack */
++ENTRY(handle_ibrs_exit_rs)
++	cmpb	$0,PCPU(IBPB_SET)
++	je	1f
++	pushq	%rax
++	pushq	%rdx
++	pushq	%rcx
++	movl	$MSR_IA32_SPEC_CTRL,%ecx
++	xorl	%eax,%eax
++	xorl	%edx,%edx
++	wrmsr
++	popq	%rcx
++	popq	%rdx
++	popq	%rax
++	movb	$0,PCPU(IBPB_SET)
++1:	ret
++END(handle_ibrs_exit_rs)
++
++	.noaltmacro
+Index: sys/amd64/amd64/sys_machdep.c
+===================================================================
+--- sys/amd64/amd64/sys_machdep.c	(revision 329241)
++++ sys/amd64/amd64/sys_machdep.c	(working copy)
+@@ -362,7 +362,9 @@ amd64_set_ioperm(td, uap)
+ 	pcb = td->td_pcb;
+ 	if (pcb->pcb_tssp == NULL) {
+ 		tssp = (struct amd64tss *)kmem_malloc(kernel_arena,
+-		    ctob(IOPAGES+1), M_WAITOK);
++		    ctob(IOPAGES + 1), M_WAITOK);
++		pmap_pti_add_kva((vm_offset_t)tssp, (vm_offset_t)tssp +
++		    ctob(IOPAGES + 1), false);
+ 		iomap = (char *)&tssp[1];
+ 		memset(iomap, 0xff, IOPERM_BITMAP_SIZE);
+ 		critical_enter();
+@@ -451,6 +453,8 @@ user_ldt_alloc(struct proc *p, int force)
+ 	struct proc_ldt *pldt, *new_ldt;
+ 	struct mdproc *mdp;
+ 	struct soft_segment_descriptor sldt;
++	vm_offset_t sva;
++	vm_size_t sz;
+ 
+ 	mtx_assert(&dt_lock, MA_OWNED);
+ 	mdp = &p->p_md;
+@@ -458,13 +462,13 @@ user_ldt_alloc(struct proc *p, int force)
+ 		return (mdp->md_ldt);
+ 	mtx_unlock(&dt_lock);
+ 	new_ldt = malloc(sizeof(struct proc_ldt), M_SUBPROC, M_WAITOK);
+-	new_ldt->ldt_base = (caddr_t)kmem_malloc(kernel_arena,
+-	     max_ldt_segment * sizeof(struct user_segment_descriptor),
+-	     M_WAITOK | M_ZERO);
++	sz = max_ldt_segment * sizeof(struct user_segment_descriptor);
++	sva = kmem_malloc(kernel_arena, sz, M_WAITOK | M_ZERO);
++	new_ldt->ldt_base = (caddr_t)sva;
++	pmap_pti_add_kva(sva, sva + sz, false);
+ 	new_ldt->ldt_refcnt = 1;
+-	sldt.ssd_base = (uint64_t)new_ldt->ldt_base;
+-	sldt.ssd_limit = max_ldt_segment *
+-	    sizeof(struct user_segment_descriptor) - 1;
++	sldt.ssd_base = sva;
++	sldt.ssd_limit = sz - 1;
+ 	sldt.ssd_type = SDT_SYSLDT;
+ 	sldt.ssd_dpl = SEL_KPL;
+ 	sldt.ssd_p = 1;
+@@ -474,8 +478,8 @@ user_ldt_alloc(struct proc *p, int force)
+ 	mtx_lock(&dt_lock);
+ 	pldt = mdp->md_ldt;
+ 	if (pldt != NULL && !force) {
+-		kmem_free(kernel_arena, (vm_offset_t)new_ldt->ldt_base,
+-		    max_ldt_segment * sizeof(struct user_segment_descriptor));
++		pmap_pti_remove_kva(sva, sva + sz);
++		kmem_free(kernel_arena, sva, sz);
+ 		free(new_ldt, M_SUBPROC);
+ 		return (pldt);
+ 	}
+@@ -522,10 +526,14 @@ user_ldt_free(struct thread *td)
+ static void
+ user_ldt_derefl(struct proc_ldt *pldt)
+ {
++	vm_offset_t sva;
++	vm_size_t sz;
+ 
+ 	if (--pldt->ldt_refcnt == 0) {
+-		kmem_free(kernel_arena, (vm_offset_t)pldt->ldt_base,
+-		    max_ldt_segment * sizeof(struct user_segment_descriptor));
++		sva = (vm_offset_t)pldt->ldt_base;
++		sz = max_ldt_segment * sizeof(struct user_segment_descriptor);
++		pmap_pti_remove_kva(sva, sva + sz);
++		kmem_free(kernel_arena, sva, sz);
+ 		free(pldt, M_SUBPROC);
+ 	}
+ }
+Index: sys/amd64/amd64/trap.c
+===================================================================
+--- sys/amd64/amd64/trap.c	(revision 329241)
++++ sys/amd64/amd64/trap.c	(working copy)
+@@ -218,11 +218,6 @@ trap(struct trapframe *frame)
+ #endif
+ 	}
+ 
+-	if (type == T_MCHK) {
+-		mca_intr();
+-		return;
+-	}
+-
+ 	if ((frame->tf_rflags & PSL_I) == 0) {
+ 		/*
+ 		 * Buggy application or kernel code has disabled
+@@ -446,9 +441,28 @@ trap(struct trapframe *frame)
+ 			 * problem here and not have to check all the
+ 			 * selectors and pointers when the user changes
+ 			 * them.
++			 *
++			 * In case of PTI, the IRETQ faulted while the
++			 * kernel used the pti stack, and exception
++			 * frame records %rsp value pointing to that
++			 * stack.  If we return normally to
++			 * doreti_iret_fault, the trapframe is
++			 * reconstructed on pti stack, and calltrap()
++			 * called on it as well.  Due to the very
++			 * limited pti stack size, kernel does not
++			 * survive for too long.  Switch to the normal
++			 * thread stack for the trap handling.
++			 *
++			 * Magic '5' is the number of qwords occupied by
++			 * the hardware trap frame.
+ 			 */
+ 			if (frame->tf_rip == (long)doreti_iret) {
+ 				frame->tf_rip = (long)doreti_iret_fault;
++				if (pti && frame->tf_rsp == (uintptr_t)PCPU_PTR(
++				    pti_stack) + (PC_PTI_STACK_SZ - 5) *
++				    sizeof(register_t))
++					frame->tf_rsp = PCPU_GET(rsp0) - 5 *
++					    sizeof(register_t);
+ 				return;
+ 			}
+ 			if (frame->tf_rip == (long)ld_ds) {
+@@ -686,6 +700,17 @@ trap_pfault(struct trapframe *frame, int usermode)
+ 	}
+ 
+ 	/*
++	 * If nx protection of the usermode portion of kernel page
++	 * tables caused trap, panic.
++	 */
++	if (pti && usermode && pg_nx != 0 && (frame->tf_err & (PGEX_P | PGEX_W |
++	    PGEX_U | PGEX_I)) == (PGEX_P | PGEX_U | PGEX_I) &&
++	    (curpcb->pcb_saved_ucr3 & ~CR3_PCID_MASK)==
++	    (PCPU_GET(curpmap)->pm_cr3 & ~CR3_PCID_MASK))
++		panic("PTI: pid %d comm %s tf_err %#lx\n", p->p_pid,
++		    p->p_comm, frame->tf_err);
++
++	/*
+ 	 * PGEX_I is defined only if the execute disable bit capability is
+ 	 * supported and enabled.
+ 	 */
+Index: sys/amd64/amd64/vm_machdep.c
+===================================================================
+--- sys/amd64/amd64/vm_machdep.c	(revision 329241)
++++ sys/amd64/amd64/vm_machdep.c	(working copy)
+@@ -340,6 +340,8 @@ cpu_thread_clean(struct thread *td)
+ 	 * Clean TSS/iomap
+ 	 */
+ 	if (pcb->pcb_tssp != NULL) {
++		pmap_pti_remove_kva((vm_offset_t)pcb->pcb_tssp,
++		    (vm_offset_t)pcb->pcb_tssp + ctob(IOPAGES + 1));
+ 		kmem_free(kernel_arena, (vm_offset_t)pcb->pcb_tssp,
+ 		    ctob(IOPAGES + 1));
+ 		pcb->pcb_tssp = NULL;
+Index: sys/amd64/ia32/ia32_exception.S
+===================================================================
+--- sys/amd64/ia32/ia32_exception.S	(revision 329241)
++++ sys/amd64/ia32/ia32_exception.S	(working copy)
+@@ -40,24 +40,27 @@
+  * that it originated in supervisor mode and skip the swapgs.
+  */
+ 	SUPERALIGN_TEXT
++IDTVEC(int0x80_syscall_pti)
++	PTI_UENTRY has_err=0
++	jmp	int0x80_syscall_common
++	SUPERALIGN_TEXT
+ IDTVEC(int0x80_syscall)
+ 	swapgs
++int0x80_syscall_common:
+ 	pushq	$2			/* sizeof "int 0x80" */
+ 	subq	$TF_ERR,%rsp		/* skip over tf_trapno */
+ 	movq	%rdi,TF_RDI(%rsp)
+ 	movq	PCPU(CURPCB),%rdi
+ 	andl	$~PCB_FULL_IRET,PCB_FLAGS(%rdi)
+-	movw	%fs,TF_FS(%rsp)
+-	movw	%gs,TF_GS(%rsp)
+-	movw	%es,TF_ES(%rsp)
+-	movw	%ds,TF_DS(%rsp)
++	SAVE_SEGS
++	movq	%rax,TF_RAX(%rsp)
++	movq	%rdx,TF_RDX(%rsp)
++	movq	%rcx,TF_RCX(%rsp)
++	call	handle_ibrs_entry
+ 	sti
+ 	movq	%rsi,TF_RSI(%rsp)
+-	movq	%rdx,TF_RDX(%rsp)
+-	movq	%rcx,TF_RCX(%rsp)
+ 	movq	%r8,TF_R8(%rsp)
+ 	movq	%r9,TF_R9(%rsp)
+-	movq	%rax,TF_RAX(%rsp)
+ 	movq	%rbx,TF_RBX(%rsp)
+ 	movq	%rbp,TF_RBP(%rsp)
+ 	movq	%r10,TF_R10(%rsp)
+Index: sys/amd64/ia32/ia32_syscall.c
+===================================================================
+--- sys/amd64/ia32/ia32_syscall.c	(revision 329241)
++++ sys/amd64/ia32/ia32_syscall.c	(working copy)
+@@ -93,7 +93,8 @@ __FBSDID("$FreeBSD$");
+ 
+ #define	IDTVEC(name)	__CONCAT(X,name)
+ 
+-extern inthand_t IDTVEC(int0x80_syscall), IDTVEC(rsvd);
++extern inthand_t IDTVEC(int0x80_syscall), IDTVEC(int0x80_syscall_pti),
++    IDTVEC(rsvd), IDTVEC(rsvd_pti);
+ 
+ void ia32_syscall(struct trapframe *frame);	/* Called from asm code */
+ 
+@@ -206,7 +207,8 @@ static void
+ ia32_syscall_enable(void *dummy)
+ {
+ 
+- 	setidt(IDT_SYSCALL, &IDTVEC(int0x80_syscall), SDT_SYSIGT, SEL_UPL, 0);
++ 	setidt(IDT_SYSCALL, pti ? &IDTVEC(int0x80_syscall_pti) :
++	    &IDTVEC(int0x80_syscall), SDT_SYSIGT, SEL_UPL, 0);
+ }
+ 
+ static void
+@@ -213,7 +215,8 @@ static void
+ ia32_syscall_disable(void *dummy)
+ {
+ 
+- 	setidt(IDT_SYSCALL, &IDTVEC(rsvd), SDT_SYSIGT, SEL_KPL, 0);
++ 	setidt(IDT_SYSCALL, pti ? &IDTVEC(rsvd_pti) : &IDTVEC(rsvd),
++	    SDT_SYSIGT, SEL_KPL, 0);
+ }
+ 
+ SYSINIT(ia32_syscall, SI_SUB_EXEC, SI_ORDER_ANY, ia32_syscall_enable, NULL);
+Index: sys/amd64/include/asmacros.h
+===================================================================
+--- sys/amd64/include/asmacros.h	(revision 329241)
++++ sys/amd64/include/asmacros.h	(working copy)
+@@ -1,7 +1,15 @@
++/* -*- mode: asm -*- */
+ /*-
+  * Copyright (c) 1993 The Regents of the University of California.
+  * All rights reserved.
+  *
++ * Copyright (c) 2018 The FreeBSD Foundation
++ * All rights reserved.
++ *
++ * Portions of this software were developed by
++ * Konstantin Belousov <kib@FreeBSD.org> under sponsorship from
++ * the FreeBSD Foundation.
++ *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+  * are met:
+@@ -144,76 +152,136 @@
+ 
+ #ifdef LOCORE
+ /*
++ * Access per-CPU data.
++ */
++#define	PCPU(member)	%gs:PC_ ## member
++#define	PCPU_ADDR(member, reg)					\
++	movq %gs:PC_PRVSPACE, reg ;				\
++	addq $PC_ ## member, reg
++
++/*
+  * Convenience macro for declaring interrupt entry points.
+  */
+ #define	IDTVEC(name)	ALIGN_TEXT; .globl __CONCAT(X,name); \
+ 			.type __CONCAT(X,name),@function; __CONCAT(X,name):
+ 
+-/*
+- * Macros to create and destroy a trap frame.
+- */
+-#define PUSH_FRAME							\
+-	subq	$TF_RIP,%rsp ;	/* skip dummy tf_err and tf_trapno */	\
+-	testb	$SEL_RPL_MASK,TF_CS(%rsp) ; /* come from kernel? */	\
+-	jz	1f ;		/* Yes, dont swapgs again */		\
+-	swapgs ;							\
+-1:	movq	%rdi,TF_RDI(%rsp) ;					\
+-	movq	%rsi,TF_RSI(%rsp) ;					\
+-	movq	%rdx,TF_RDX(%rsp) ;					\
+-	movq	%rcx,TF_RCX(%rsp) ;					\
+-	movq	%r8,TF_R8(%rsp) ;					\
+-	movq	%r9,TF_R9(%rsp) ;					\
+-	movq	%rax,TF_RAX(%rsp) ;					\
+-	movq	%rbx,TF_RBX(%rsp) ;					\
+-	movq	%rbp,TF_RBP(%rsp) ;					\
+-	movq	%r10,TF_R10(%rsp) ;					\
+-	movq	%r11,TF_R11(%rsp) ;					\
+-	movq	%r12,TF_R12(%rsp) ;					\
+-	movq	%r13,TF_R13(%rsp) ;					\
+-	movq	%r14,TF_R14(%rsp) ;					\
+-	movq	%r15,TF_R15(%rsp) ;					\
+-	movw	%fs,TF_FS(%rsp) ;					\
+-	movw	%gs,TF_GS(%rsp) ;					\
+-	movw	%es,TF_ES(%rsp) ;					\
+-	movw	%ds,TF_DS(%rsp) ;					\
+-	movl	$TF_HASSEGS,TF_FLAGS(%rsp) ;				\
+-	cld ;								\
+-	testb	$SEL_RPL_MASK,TF_CS(%rsp) ; /* come from kernel ? */	\
+-	jz	2f ;		/* yes, leave PCB_FULL_IRET alone */	\
+-	movq	PCPU(CURPCB),%r8 ;					\
+-	andl	$~PCB_FULL_IRET,PCB_FLAGS(%r8) ;			\
+-2:
++	.macro	SAVE_SEGS
++	movw	%fs,TF_FS(%rsp)
++	movw	%gs,TF_GS(%rsp)
++	movw	%es,TF_ES(%rsp)
++	movw	%ds,TF_DS(%rsp)
++	.endm
+ 
+-#define POP_FRAME							\
+-	movq	TF_RDI(%rsp),%rdi ;					\
+-	movq	TF_RSI(%rsp),%rsi ;					\
+-	movq	TF_RDX(%rsp),%rdx ;					\
+-	movq	TF_RCX(%rsp),%rcx ;					\
+-	movq	TF_R8(%rsp),%r8 ;					\
+-	movq	TF_R9(%rsp),%r9 ;					\
+-	movq	TF_RAX(%rsp),%rax ;					\
+-	movq	TF_RBX(%rsp),%rbx ;					\
+-	movq	TF_RBP(%rsp),%rbp ;					\
+-	movq	TF_R10(%rsp),%r10 ;					\
+-	movq	TF_R11(%rsp),%r11 ;					\
+-	movq	TF_R12(%rsp),%r12 ;					\
+-	movq	TF_R13(%rsp),%r13 ;					\
+-	movq	TF_R14(%rsp),%r14 ;					\
+-	movq	TF_R15(%rsp),%r15 ;					\
+-	testb	$SEL_RPL_MASK,TF_CS(%rsp) ; /* come from kernel? */	\
+-	jz	1f ;		/* keep kernel GS.base */		\
+-	cli ;								\
+-	swapgs ;							\
+-1:	addq	$TF_RIP,%rsp	/* skip over tf_err, tf_trapno */
++	.macro	MOVE_STACKS qw
++	offset=0
++	.rept	\qw
++	movq	offset(%rsp),%rdx
++	movq	%rdx,offset(%rax)
++	offset=offset+8
++	.endr
++	.endm
+ 
+-/*
+- * Access per-CPU data.
+- */
+-#define	PCPU(member)	%gs:PC_ ## member
+-#define	PCPU_ADDR(member, reg)					\
+-	movq %gs:PC_PRVSPACE, reg ;				\
+-	addq $PC_ ## member, reg
++	.macro	PTI_UUENTRY has_err
++	movq	PCPU(KCR3),%rax
++	movq	%rax,%cr3
++	movq	PCPU(RSP0),%rax
++	subq	$PTI_SIZE,%rax
++	MOVE_STACKS	((PTI_SIZE / 8) - 1 + \has_err)
++	movq	%rax,%rsp
++	popq	%rdx
++	popq	%rax
++	.endm
+ 
++	.macro	PTI_UENTRY has_err
++	swapgs
++	pushq	%rax
++	pushq	%rdx
++	PTI_UUENTRY \has_err
++	.endm
++
++	.macro	PTI_ENTRY name, cont, has_err=0
++	ALIGN_TEXT
++	.globl	X\name\()_pti
++	.type	X\name\()_pti,@function
++X\name\()_pti:
++	/* %rax, %rdx and possibly err not yet pushed */
++	testb	$SEL_RPL_MASK,PTI_CS-(2+1-\has_err)*8(%rsp)
++	jz	\cont
++	PTI_UENTRY \has_err
++	swapgs
++	jmp	\cont
++	.endm
++
++	.macro	PTI_INTRENTRY vec_name
++	SUPERALIGN_TEXT
++	.globl	X\vec_name\()_pti
++	.type	X\vec_name\()_pti,@function
++X\vec_name\()_pti:
++	testb	$SEL_RPL_MASK,PTI_CS-3*8(%rsp) /* err, %rax, %rdx not pushed */
++	jz	\vec_name\()_u
++	PTI_UENTRY has_err=0
++	jmp	\vec_name\()_u
++	.endm
++
++	.macro	INTR_PUSH_FRAME vec_name
++	SUPERALIGN_TEXT
++	.globl	X\vec_name
++	.type	X\vec_name,@function
++X\vec_name:
++	testb	$SEL_RPL_MASK,PTI_CS-3*8(%rsp) /* come from kernel? */
++	jz	\vec_name\()_u		/* Yes, dont swapgs again */
++	swapgs
++\vec_name\()_u:
++	subq	$TF_RIP,%rsp	/* skip dummy tf_err and tf_trapno */
++	movq	%rdi,TF_RDI(%rsp)
++	movq	%rsi,TF_RSI(%rsp)
++	movq	%rdx,TF_RDX(%rsp)
++	movq	%rcx,TF_RCX(%rsp)
++	movq	%r8,TF_R8(%rsp)
++	movq	%r9,TF_R9(%rsp)
++	movq	%rax,TF_RAX(%rsp)
++	movq	%rbx,TF_RBX(%rsp)
++	movq	%rbp,TF_RBP(%rsp)
++	movq	%r10,TF_R10(%rsp)
++	movq	%r11,TF_R11(%rsp)
++	movq	%r12,TF_R12(%rsp)
++	movq	%r13,TF_R13(%rsp)
++	movq	%r14,TF_R14(%rsp)
++	movq	%r15,TF_R15(%rsp)
++	SAVE_SEGS
++	movl	$TF_HASSEGS,TF_FLAGS(%rsp)
++	cld
++	testb	$SEL_RPL_MASK,TF_CS(%rsp)  /* come from kernel ? */
++	jz	1f		/* yes, leave PCB_FULL_IRET alone */
++	movq	PCPU(CURPCB),%r8
++	andl	$~PCB_FULL_IRET,PCB_FLAGS(%r8)
++1:
++	.endm
++
++	.macro	INTR_HANDLER vec_name
++	.text
++	PTI_INTRENTRY	\vec_name
++	INTR_PUSH_FRAME	\vec_name
++	.endm
++
++	.macro	RESTORE_REGS
++	movq	TF_RDI(%rsp),%rdi
++	movq	TF_RSI(%rsp),%rsi
++	movq	TF_RDX(%rsp),%rdx
++	movq	TF_RCX(%rsp),%rcx
++	movq	TF_R8(%rsp),%r8
++	movq	TF_R9(%rsp),%r9
++	movq	TF_RAX(%rsp),%rax
++	movq	TF_RBX(%rsp),%rbx
++	movq	TF_RBP(%rsp),%rbp
++	movq	TF_R10(%rsp),%r10
++	movq	TF_R11(%rsp),%r11
++	movq	TF_R12(%rsp),%r12
++	movq	TF_R13(%rsp),%r13
++	movq	TF_R14(%rsp),%r14
++	movq	TF_R15(%rsp),%r15
++	.endm
++
+ #endif /* LOCORE */
+ 
+ #ifdef __STDC__
+Index: sys/amd64/include/frame.h
+===================================================================
+--- sys/amd64/include/frame.h	(revision 329241)
++++ sys/amd64/include/frame.h	(working copy)
+@@ -1,6 +1,50 @@
+ /*-
+- * This file is in the public domain.
++ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
++ *
++ * Copyright (c) 2018 The FreeBSD Foundation
++ * All rights reserved.
++ *
++ * This software was developed by Konstantin Belousov <kib@FreeBSD.org>
++ * under sponsorship from the FreeBSD Foundation.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED. IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
++ *
++ * $FreeBSD$
+  */
+-/* $FreeBSD$ */
+ 
++#ifndef	_AMD64_FRAME_H
++#define	_AMD64_FRAME_H
++
+ #include <x86/frame.h>
++
++struct pti_frame {
++	register_t	pti_rdx;
++	register_t	pti_rax;
++	register_t	pti_err;
++	register_t	pti_rip;
++	register_t	pti_cs;
++	register_t	pti_rflags;
++	register_t	pti_rsp;
++	register_t	pti_ss;
++};
++
++#endif
+Index: sys/amd64/include/intr_machdep.h
+===================================================================
+--- sys/amd64/include/intr_machdep.h	(revision 329241)
++++ sys/amd64/include/intr_machdep.h	(working copy)
+@@ -136,7 +136,7 @@ struct trapframe;
+ 
+ /*
+  * The following data structure holds per-cpu data, and is placed just
+- * above the top of the space used for the NMI stack.
++ * above the top of the space used for the NMI and MC# stacks.
+  */
+ struct nmi_pcpu {
+ 	register_t	np_pcpu;
+Index: sys/amd64/include/md_var.h
+===================================================================
+--- sys/amd64/include/md_var.h	(revision 329241)
++++ sys/amd64/include/md_var.h	(working copy)
+@@ -36,7 +36,14 @@
+ 
+ extern uint64_t	*vm_page_dump;
+ extern int	hw_lower_amd64_sharedpage;
++extern int	hw_ibrs_disable;
+ 
++/*
++ * The file "conf/ldscript.amd64" defines the symbol "kernphys".  Its
++ * value is the physical address at which the kernel is loaded.
++ */
++extern char kernphys[];
++
+ struct	savefpu;
+ struct	sysentvec;
+ 
+Index: sys/amd64/include/pcb.h
+===================================================================
+--- sys/amd64/include/pcb.h	(revision 329241)
++++ sys/amd64/include/pcb.h	(working copy)
+@@ -90,7 +90,7 @@ struct pcb {
+ 	/* copyin/out fault recovery */
+ 	caddr_t		pcb_onfault;
+ 
+-	uint64_t	pcb_pad0;
++	uint64_t	pcb_saved_ucr3;
+ 
+ 	/* local tss, with i/o bitmap; NULL for common */
+ 	struct amd64tss *pcb_tssp;
+Index: sys/amd64/include/pcpu.h
+===================================================================
+--- sys/amd64/include/pcpu.h	(revision 329241)
++++ sys/amd64/include/pcpu.h	(working copy)
+@@ -33,6 +33,7 @@
+ #error "sys/cdefs.h is a prerequisite for this file"
+ #endif
+ 
++#define	PC_PTI_STACK_SZ	16
+ /*
+  * The SMP parts are setup in pmap.c and locore.s for the BSP, and
+  * mp_machdep.c sets up the data for the AP's to "see" when they awake.
+@@ -46,8 +47,12 @@
+ 	struct	pmap *pc_curpmap;					\
+ 	struct	amd64tss *pc_tssp;	/* TSS segment active on CPU */	\
+ 	struct	amd64tss *pc_commontssp;/* Common TSS for the CPU */	\
++	uint64_t pc_kcr3;						\
++	uint64_t pc_ucr3;						\
++	uint64_t pc_saved_ucr3;						\
+ 	register_t pc_rsp0;						\
+ 	register_t pc_scratch_rsp;	/* User %rsp in syscall */	\
++	register_t pc_scratch_rax;					\
+ 	u_int	pc_apic_id;						\
+ 	u_int   pc_acpi_id;		/* ACPI CPU id */		\
+ 	/* Pointer to the CPU %fs descriptor */				\
+@@ -61,12 +66,14 @@
+ 	uint64_t	pc_pm_save_cnt;					\
+ 	u_int	pc_cmci_mask;		/* MCx banks for CMCI */	\
+ 	uint64_t pc_dbreg[16];		/* ddb debugging regs */	\
++	uint64_t pc_pti_stack[PC_PTI_STACK_SZ];				\
+ 	int pc_dbreg_cmd;		/* ddb debugging reg cmd */	\
+ 	u_int	pc_vcpu_id;		/* Xen vCPU ID */		\
+ 	uint32_t pc_pcid_next;						\
+ 	uint32_t pc_pcid_gen;						\
+ 	uint32_t pc_smp_tlb_done;	/* TLB op acknowledgement */	\
+-	char	__pad[145]		/* be divisor of PAGE_SIZE	\
++	uint32_t pc_ibpb_set;						\
++	char	__pad[77]		/* be divisor of PAGE_SIZE	\
+ 					   after cache alignment */
+ 
+ #define	PC_DBREG_CMD_NONE	0
+Index: sys/amd64/include/pmap.h
+===================================================================
+--- sys/amd64/include/pmap.h	(revision 329241)
++++ sys/amd64/include/pmap.h	(working copy)
+@@ -223,7 +223,11 @@
+ #define	PMAP_PCID_NONE		0xffffffff
+ #define	PMAP_PCID_KERN		0
+ #define	PMAP_PCID_OVERMAX	0x1000
++#define	PMAP_PCID_OVERMAX_KERN	0x800
++#define	PMAP_PCID_USER_PT	0x800
+ 
++#define	PMAP_NO_CR3		(~0UL)
++
+ #ifndef LOCORE
+ 
+ #include <sys/queue.h>
+@@ -313,7 +317,9 @@ struct pmap_pcids {
+ struct pmap {
+ 	struct mtx		pm_mtx;
+ 	pml4_entry_t		*pm_pml4;	/* KVA of level 4 page table */
++	pml4_entry_t		*pm_pml4u;	/* KVA of user l4 page table */
+ 	uint64_t		pm_cr3;
++	uint64_t		pm_ucr3;
+ 	TAILQ_HEAD(,pv_chunk)	pm_pvchunk;	/* list of mappings in pmap */
+ 	cpuset_t		pm_active;	/* active on cpus */
+ 	enum pmap_type		pm_type;	/* regular or nested tables */
+@@ -427,6 +433,12 @@ void	pmap_invalidate_cache_range(vm_offset_t sva,
+ void	pmap_get_mapping(pmap_t pmap, vm_offset_t va, uint64_t *ptr, int *num);
+ boolean_t pmap_map_io_transient(vm_page_t *, vm_offset_t *, int, boolean_t);
+ void	pmap_unmap_io_transient(vm_page_t *, vm_offset_t *, int, boolean_t);
++void	pmap_pti_add_kva(vm_offset_t sva, vm_offset_t eva, bool exec);
++void	pmap_pti_remove_kva(vm_offset_t sva, vm_offset_t eva);
++void	pmap_pti_pcid_invalidate(uint64_t ucr3, uint64_t kcr3);
++void	pmap_pti_pcid_invlpg(uint64_t ucr3, uint64_t kcr3, vm_offset_t va);
++void	pmap_pti_pcid_invlrng(uint64_t ucr3, uint64_t kcr3, vm_offset_t sva,
++	    vm_offset_t eva);
+ #endif /* _KERNEL */
+ 
+ /* Return various clipped indexes for a given VA */
+Index: sys/amd64/include/smp.h
+===================================================================
+--- sys/amd64/include/smp.h	(revision 329241)
++++ sys/amd64/include/smp.h	(working copy)
+@@ -28,12 +28,36 @@ extern u_int32_t		mptramp_pagetables;
+ 
+ /* IPI handlers */
+ inthand_t
++	IDTVEC(justreturn),	/* interrupt CPU with minimum overhead */
++	IDTVEC(justreturn1_pti),
++	IDTVEC(invltlb_pti),
++	IDTVEC(invltlb_pcid_pti),
+ 	IDTVEC(invltlb_pcid),	/* TLB shootdowns - global, pcid */
+-	IDTVEC(invltlb_invpcid),/* TLB shootdowns - global, invpcid */
+-	IDTVEC(justreturn);	/* interrupt CPU with minimum overhead */
++	IDTVEC(invltlb_invpcid_pti_pti),
++	IDTVEC(invltlb_invpcid_nopti),
++	IDTVEC(invlpg_pti),
++	IDTVEC(invlpg_invpcid_pti),
++	IDTVEC(invlpg_invpcid),
++	IDTVEC(invlpg_pcid_pti),
++	IDTVEC(invlpg_pcid),
++	IDTVEC(invlrng_pti),
++	IDTVEC(invlrng_invpcid_pti),
++	IDTVEC(invlrng_invpcid),
++	IDTVEC(invlrng_pcid_pti),
++	IDTVEC(invlrng_pcid),
++	IDTVEC(invlcache_pti),
++	IDTVEC(ipi_intr_bitmap_handler_pti),
++	IDTVEC(cpustop_pti),
++	IDTVEC(cpususpend_pti),
++	IDTVEC(rendezvous_pti);
+ 
+ void	invltlb_pcid_handler(void);
+ void	invltlb_invpcid_handler(void);
++void	invltlb_invpcid_pti_handler(void);
++void	invlpg_invpcid_handler(void);
++void	invlpg_pcid_handler(void);
++void	invlrng_invpcid_handler(void);
++void	invlrng_pcid_handler(void);
+ int	native_start_all_aps(void);
+ 
+ #endif /* !LOCORE */
+Index: sys/amd64/vmm/intel/vmx.c
+===================================================================
+--- sys/amd64/vmm/intel/vmx.c	(revision 329241)
++++ sys/amd64/vmm/intel/vmx.c	(working copy)
+@@ -693,7 +693,8 @@ vmx_init(int ipinum)
+ 		    MSR_VMX_TRUE_PINBASED_CTLS, PINBASED_POSTED_INTERRUPT, 0,
+ 		    &tmp);
+ 		if (error == 0) {
+-			pirvec = lapic_ipi_alloc(&IDTVEC(justreturn));
++			pirvec = lapic_ipi_alloc(pti ? &IDTVEC(justreturn1_pti) :
++			    &IDTVEC(justreturn));
+ 			if (pirvec < 0) {
+ 				if (bootverbose) {
+ 					printf("vmx_init: unable to allocate "
+Index: sys/amd64/vmm/vmm.c
+===================================================================
+--- sys/amd64/vmm/vmm.c	(revision 329241)
++++ sys/amd64/vmm/vmm.c	(working copy)
+@@ -55,6 +55,7 @@ __FBSDID("$FreeBSD$");
+ #include <machine/cpu.h>
+ #include <machine/pcb.h>
+ #include <machine/smp.h>
++#include <machine/md_var.h>
+ #include <x86/psl.h>
+ #include <x86/apicreg.h>
+ 
+@@ -325,7 +326,8 @@ vmm_init(void)
+ 
+ 	vmm_host_state_init();
+ 
+-	vmm_ipinum = lapic_ipi_alloc(&IDTVEC(justreturn));
++	vmm_ipinum = lapic_ipi_alloc(pti ? &IDTVEC(justreturn1_pti) :
++	    &IDTVEC(justreturn));
+ 	if (vmm_ipinum < 0)
+ 		vmm_ipinum = IPI_AST;
+ 
+Index: sys/dev/cpuctl/cpuctl.c
+===================================================================
+--- sys/dev/cpuctl/cpuctl.c	(revision 329241)
++++ sys/dev/cpuctl/cpuctl.c	(working copy)
+@@ -525,6 +525,7 @@ cpuctl_do_eval_cpu_features(int cpu, struct thread
+ 	set_cpu(cpu, td);
+ 	identify_cpu1();
+ 	identify_cpu2();
++	hw_ibrs_recalculate();
+ 	restore_cpu(oldcpu, is_bound, td);
+ 	printcpuinfo();
+ 	return (0);
+Index: sys/dev/hyperv/vmbus/amd64/vmbus_vector.S
+===================================================================
+--- sys/dev/hyperv/vmbus/amd64/vmbus_vector.S	(revision 329241)
++++ sys/dev/hyperv/vmbus/amd64/vmbus_vector.S	(working copy)
+@@ -26,11 +26,11 @@
+  * $FreeBSD$
+  */
+ 
++#include "assym.s"
++
+ #include <machine/asmacros.h>
+ #include <machine/specialreg.h>
+ 
+-#include "assym.s"
+-
+ /*
+  * This is the Hyper-V vmbus channel direct callback interrupt.
+  * Only used when it is running on Hyper-V.
+@@ -37,8 +37,7 @@
+  */
+ 	.text
+ 	SUPERALIGN_TEXT
+-IDTVEC(vmbus_isr)
+-	PUSH_FRAME
++	INTR_HANDLER	vmbus_isr
+ 	FAKE_MCOUNT(TF_RIP(%rsp))
+ 	movq	%rsp, %rdi
+ 	call	vmbus_handle_intr
+Index: sys/dev/hyperv/vmbus/i386/vmbus_vector.S
+===================================================================
+--- sys/dev/hyperv/vmbus/i386/vmbus_vector.S	(revision 329241)
++++ sys/dev/hyperv/vmbus/i386/vmbus_vector.S	(working copy)
+@@ -37,6 +37,7 @@
+  */
+ 	.text
+ 	SUPERALIGN_TEXT
++IDTVEC(vmbus_isr_pti)
+ IDTVEC(vmbus_isr)
+ 	PUSH_FRAME
+ 	SET_KERNEL_SREGS
+Index: sys/dev/hyperv/vmbus/vmbus.c
+===================================================================
+--- sys/dev/hyperv/vmbus/vmbus.c	(revision 329241)
++++ sys/dev/hyperv/vmbus/vmbus.c	(working copy)
+@@ -46,6 +46,7 @@ __FBSDID("$FreeBSD$");
+ 
+ #include <machine/bus.h>
+ #include <machine/intr_machdep.h>
++#include <machine/md_var.h>
+ #include <machine/resource.h>
+ #include <x86/include/apicvar.h>
+ 
+@@ -135,7 +136,7 @@ static int			vmbus_pin_evttask = 1;
+ SYSCTL_INT(_hw_vmbus, OID_AUTO, pin_evttask, CTLFLAG_RDTUN,
+     &vmbus_pin_evttask, 0, "Pin event tasks to their respective CPU");
+ 
+-extern inthand_t IDTVEC(vmbus_isr);
++extern inthand_t IDTVEC(vmbus_isr), IDTVEC(vmbus_isr_pti);
+ 
+ static const uint32_t		vmbus_version[] = {
+ 	VMBUS_VERSION_WIN8_1,
+@@ -941,7 +942,8 @@ vmbus_intr_setup(struct vmbus_softc *sc)
+ 	 * All Hyper-V ISR required resources are setup, now let's find a
+ 	 * free IDT vector for Hyper-V ISR and set it up.
+ 	 */
+-	sc->vmbus_idtvec = lapic_ipi_alloc(IDTVEC(vmbus_isr));
++	sc->vmbus_idtvec = lapic_ipi_alloc(pti ? IDTVEC(vmbus_isr_pti) :
++	    IDTVEC(vmbus_isr));
+ 	if (sc->vmbus_idtvec < 0) {
+ 		device_printf(sc->vmbus_dev, "cannot find free IDT vector\n");
+ 		return ENXIO;
+Index: sys/i386/i386/apic_vector.s
+===================================================================
+--- sys/i386/i386/apic_vector.s	(revision 329241)
++++ sys/i386/i386/apic_vector.s	(working copy)
+@@ -70,6 +70,7 @@ as_lapic_eoi:
+ #define	ISR_VEC(index, vec_name)					\
+ 	.text ;								\
+ 	SUPERALIGN_TEXT ;						\
++IDTVEC(vec_name ## _pti) ;						\
+ IDTVEC(vec_name) ;							\
+ 	PUSH_FRAME ;							\
+ 	SET_KERNEL_SREGS ;						\
+@@ -123,6 +124,7 @@ IDTVEC(spuriousint)
+  */
+ 	.text
+ 	SUPERALIGN_TEXT
++IDTVEC(timerint_pti)
+ IDTVEC(timerint)
+ 	PUSH_FRAME
+ 	SET_KERNEL_SREGS
+@@ -139,6 +141,7 @@ IDTVEC(timerint)
+  */
+ 	.text
+ 	SUPERALIGN_TEXT
++IDTVEC(cmcint_pti)
+ IDTVEC(cmcint)
+ 	PUSH_FRAME
+ 	SET_KERNEL_SREGS
+@@ -153,6 +156,7 @@ IDTVEC(cmcint)
+  */
+ 	.text
+ 	SUPERALIGN_TEXT
++IDTVEC(errorint_pti)
+ IDTVEC(errorint)
+ 	PUSH_FRAME
+ 	SET_KERNEL_SREGS
+Index: sys/i386/i386/atpic_vector.s
+===================================================================
+--- sys/i386/i386/atpic_vector.s	(revision 329241)
++++ sys/i386/i386/atpic_vector.s	(working copy)
+@@ -46,6 +46,7 @@
+ #define	INTR(irq_num, vec_name) \
+ 	.text ;								\
+ 	SUPERALIGN_TEXT ;						\
++IDTVEC(vec_name ##_pti) ;						\
+ IDTVEC(vec_name) ;							\
+ 	PUSH_FRAME ;							\
+ 	SET_KERNEL_SREGS ;						\
+Index: sys/i386/i386/exception.s
+===================================================================
+--- sys/i386/i386/exception.s	(revision 329241)
++++ sys/i386/i386/exception.s	(working copy)
+@@ -133,6 +133,7 @@ IDTVEC(page)
+ 	TRAP(T_PAGEFLT)
+ IDTVEC(mchk)
+ 	pushl $0; TRAP(T_MCHK)
++IDTVEC(rsvd_pti)
+ IDTVEC(rsvd)
+ 	pushl $0; TRAP(T_RESERVED)
+ IDTVEC(fpu)
+Index: sys/i386/i386/machdep.c
+===================================================================
+--- sys/i386/i386/machdep.c	(revision 329241)
++++ sys/i386/i386/machdep.c	(working copy)
+@@ -2579,7 +2579,7 @@ init386(int first)
+ 	    GSEL(GCODE_SEL, SEL_KPL));
+ #endif
+ #ifdef XENHVM
+-	setidt(IDT_EVTCHN, &IDTVEC(xen_intr_upcall), SDT_SYS386IGT, SEL_UPL,
++	setidt(IDT_EVTCHN, &IDTVEC(xen_intr_upcall), SDT_SYS386IGT, SEL_KPL,
+ 	    GSEL(GCODE_SEL, SEL_KPL));
+ #endif
+ 
+Index: sys/i386/i386/pmap.c
+===================================================================
+--- sys/i386/i386/pmap.c	(revision 329241)
++++ sys/i386/i386/pmap.c	(working copy)
+@@ -284,6 +284,8 @@ SYSCTL_INT(_debug, OID_AUTO, PMAP1unchanged, CTLFL
+ 	   "Number of times pmap_pte_quick didn't change PMAP1");
+ static struct mtx PMAP2mutex;
+ 
++int pti;
++
+ static void	free_pv_chunk(struct pv_chunk *pc);
+ static void	free_pv_entry(pmap_t pmap, pv_entry_t pv);
+ static pv_entry_t get_pv_entry(pmap_t pmap, boolean_t try);
+@@ -1048,7 +1050,7 @@ pmap_invalidate_page(pmap_t pmap, vm_offset_t va)
+ 		CPU_AND(&other_cpus, &pmap->pm_active);
+ 		mask = &other_cpus;
+ 	}
+-	smp_masked_invlpg(*mask, va);
++	smp_masked_invlpg(*mask, va, pmap);
+ 	sched_unpin();
+ }
+ 
+@@ -1082,7 +1084,7 @@ pmap_invalidate_range(pmap_t pmap, vm_offset_t sva
+ 		CPU_AND(&other_cpus, &pmap->pm_active);
+ 		mask = &other_cpus;
+ 	}
+-	smp_masked_invlpg_range(*mask, sva, eva);
++	smp_masked_invlpg_range(*mask, sva, eva, pmap);
+ 	sched_unpin();
+ }
+ 
+Index: sys/i386/i386/support.s
+===================================================================
+--- sys/i386/i386/support.s	(revision 329241)
++++ sys/i386/i386/support.s	(working copy)
+@@ -818,3 +818,11 @@ msr_onfault:
+ 	movl	$0,PCB_ONFAULT(%ecx)
+ 	movl	$EFAULT,%eax
+ 	ret
++
++ENTRY(handle_ibrs_entry)
++	ret
++END(handle_ibrs_entry)
++
++ENTRY(handle_ibrs_exit)
++	ret
++END(handle_ibrs_exit)
+Index: sys/i386/i386/vm_machdep.c
+===================================================================
+--- sys/i386/i386/vm_machdep.c	(revision 329241)
++++ sys/i386/i386/vm_machdep.c	(working copy)
+@@ -798,7 +798,7 @@ sf_buf_shootdown(struct sf_buf *sf, int flags)
+ 		CPU_NAND(&other_cpus, &sf->cpumask);
+ 		if (!CPU_EMPTY(&other_cpus)) {
+ 			CPU_OR(&sf->cpumask, &other_cpus);
+-			smp_masked_invlpg(other_cpus, sf->kva);
++			smp_masked_invlpg(other_cpus, sf->kva, kernel_pmap);
+ 		}
+ 	}
+ 	sched_unpin();
+Index: sys/x86/include/apicvar.h
+===================================================================
+--- sys/x86/include/apicvar.h	(revision 329241)
++++ sys/x86/include/apicvar.h	(working copy)
+@@ -179,7 +179,11 @@ inthand_t
+ 	IDTVEC(apic_isr1), IDTVEC(apic_isr2), IDTVEC(apic_isr3),
+ 	IDTVEC(apic_isr4), IDTVEC(apic_isr5), IDTVEC(apic_isr6),
+ 	IDTVEC(apic_isr7), IDTVEC(cmcint), IDTVEC(errorint),
+-	IDTVEC(spuriousint), IDTVEC(timerint);
++	IDTVEC(spuriousint), IDTVEC(timerint),
++	IDTVEC(apic_isr1_pti), IDTVEC(apic_isr2_pti), IDTVEC(apic_isr3_pti),
++	IDTVEC(apic_isr4_pti), IDTVEC(apic_isr5_pti), IDTVEC(apic_isr6_pti),
++	IDTVEC(apic_isr7_pti), IDTVEC(cmcint_pti), IDTVEC(errorint_pti),
++	IDTVEC(spuriousint_pti), IDTVEC(timerint_pti);
+ 
+ extern vm_paddr_t lapic_paddr;
+ extern int apic_cpuids[];
+Index: sys/x86/include/specialreg.h
+===================================================================
+--- sys/x86/include/specialreg.h	(revision 329241)
++++ sys/x86/include/specialreg.h	(working copy)
+@@ -578,9 +578,13 @@
+ #define	IA32_MISC_EN_xTPRD	0x0000000000800000ULL
+ #define	IA32_MISC_EN_XDD	0x0000000400000000ULL
+ 
++/*
++ * IA32_SPEC_CTRL and IA32_PRED_CMD MSRs are described in the Intel'
++ * document 336996-001 Speculative Execution Side Channel Mitigations.
++ */
+ /* MSR IA32_SPEC_CTRL */
+-#define	IA32_SPEC_CTRL_IBRS	0x0000000000000001ULL
+-#define	IA32_SPEC_CTRL_STIBP	0x0000000000000002ULL
++#define	IA32_SPEC_CTRL_IBRS	0x00000001
++#define	IA32_SPEC_CTRL_STIBP	0x00000002
+ 
+ /* MSR IA32_PRED_CMD */
+ #define	IA32_PRED_CMD_IBPB_BARRIER	0x0000000000000001ULL
+Index: sys/x86/include/x86_smp.h
+===================================================================
+--- sys/x86/include/x86_smp.h	(revision 329241)
++++ sys/x86/include/x86_smp.h	(working copy)
+@@ -37,6 +37,7 @@ extern int cpu_logical;
+ extern int cpu_cores;
+ extern volatile uint32_t smp_tlb_generation;
+ extern struct pmap *smp_tlb_pmap;
++extern vm_offset_t smp_tlb_addr1, smp_tlb_addr2;
+ extern u_int xhits_gbl[];
+ extern u_int xhits_pg[];
+ extern u_int xhits_rng[];
+@@ -95,9 +96,9 @@ void	ipi_selected(cpuset_t cpus, u_int ipi);
+ u_int	mp_bootaddress(u_int);
+ void	set_interrupt_apic_ids(void);
+ void	smp_cache_flush(void);
+-void	smp_masked_invlpg(cpuset_t mask, vm_offset_t addr);
++void	smp_masked_invlpg(cpuset_t mask, vm_offset_t addr, struct pmap *pmap);
+ void	smp_masked_invlpg_range(cpuset_t mask, vm_offset_t startva,
+-	    vm_offset_t endva);
++	    vm_offset_t endva, struct pmap *pmap);
+ void	smp_masked_invltlb(cpuset_t mask, struct pmap *pmap);
+ void	mem_range_AP_init(void);
+ void	topo_probe(void);
+Index: sys/x86/include/x86_var.h
+===================================================================
+--- sys/x86/include/x86_var.h	(revision 329241)
++++ sys/x86/include/x86_var.h	(working copy)
+@@ -81,6 +81,7 @@ extern	int	_ufssel;
+ extern	int	_ugssel;
+ extern	int	use_xsave;
+ extern	uint64_t xsave_mask;
++extern int	pti;
+ 
+ struct	pcb;
+ struct	thread;
+@@ -128,11 +129,15 @@ bool	fix_cpuid(void);
+ void	fillw(int /*u_short*/ pat, void *base, size_t cnt);
+ int	is_physical_memory(vm_paddr_t addr);
+ int	isa_nmi(int cd);
++void	handle_ibrs_entry(void);
++void	handle_ibrs_exit(void);
++void	hw_ibrs_recalculate(void);
+ void	nmi_call_kdb(u_int cpu, u_int type, struct trapframe *frame);
+ void	nmi_call_kdb_smp(u_int type, struct trapframe *frame);
+ void	nmi_handle_intr(u_int type, struct trapframe *frame);
+ void	pagecopy(void *from, void *to);
+ void	printcpuinfo(void);
++int	pti_get_default(void);
+ int	user_dbreg_trap(void);
+ int	minidumpsys(struct dumperinfo *);
+ struct pcb *get_pcb_td(struct thread *td);
+Index: sys/x86/isa/atpic.c
+===================================================================
+--- sys/x86/isa/atpic.c	(revision 329241)
++++ sys/x86/isa/atpic.c	(working copy)
+@@ -86,6 +86,16 @@ inthand_t
+ 	IDTVEC(atpic_intr9), IDTVEC(atpic_intr10), IDTVEC(atpic_intr11),
+ 	IDTVEC(atpic_intr12), IDTVEC(atpic_intr13), IDTVEC(atpic_intr14),
+ 	IDTVEC(atpic_intr15);
++/* XXXKIB i386 uses stubs until pti comes */
++inthand_t
++	IDTVEC(atpic_intr0_pti), IDTVEC(atpic_intr1_pti),
++	IDTVEC(atpic_intr2_pti), IDTVEC(atpic_intr3_pti),
++	IDTVEC(atpic_intr4_pti), IDTVEC(atpic_intr5_pti),
++	IDTVEC(atpic_intr6_pti), IDTVEC(atpic_intr7_pti),
++	IDTVEC(atpic_intr8_pti), IDTVEC(atpic_intr9_pti),
++	IDTVEC(atpic_intr10_pti), IDTVEC(atpic_intr11_pti),
++	IDTVEC(atpic_intr12_pti), IDTVEC(atpic_intr13_pti),
++	IDTVEC(atpic_intr14_pti), IDTVEC(atpic_intr15_pti);
+ 
+ #define	IRQ(ap, ai)	((ap)->at_irqbase + (ai)->at_irq)
+ 
+@@ -98,7 +108,7 @@ inthand_t
+ 
+ #define	INTSRC(irq)							\
+ 	{ { &atpics[(irq) / 8].at_pic }, IDTVEC(atpic_intr ## irq ),	\
+-	    (irq) % 8 }
++	    IDTVEC(atpic_intr ## irq ## _pti), (irq) % 8 }
+ 
+ struct atpic {
+ 	struct pic at_pic;
+@@ -110,7 +120,7 @@ struct atpic {
+ 
+ struct atpic_intsrc {
+ 	struct intsrc at_intsrc;
+-	inthand_t *at_intr;
++	inthand_t *at_intr, *at_intr_pti;
+ 	int	at_irq;			/* Relative to PIC base. */
+ 	enum intr_trigger at_trigger;
+ 	u_long	at_count;
+@@ -435,7 +445,8 @@ atpic_startup(void)
+ 		ai->at_intsrc.is_count = &ai->at_count;
+ 		ai->at_intsrc.is_straycount = &ai->at_straycount;
+ 		setidt(((struct atpic *)ai->at_intsrc.is_pic)->at_intbase +
+-		    ai->at_irq, ai->at_intr, SDT_ATPIC, SEL_KPL, GSEL_ATPIC);
++		    ai->at_irq, pti ? ai->at_intr_pti : ai->at_intr, SDT_ATPIC,
++		    SEL_KPL, GSEL_ATPIC);
+ 	}
+ 
+ #ifdef DEV_MCA
+Index: sys/x86/x86/cpu_machdep.c
+===================================================================
+--- sys/x86/x86/cpu_machdep.c	(revision 329241)
++++ sys/x86/x86/cpu_machdep.c	(working copy)
+@@ -139,6 +139,12 @@ acpi_cpu_idle_mwait(uint32_t mwait_hint)
+ 	int *state;
+ 
+ 	/*
++	 * A comment in Linux patch claims that 'CPUs run faster with
++	 * speculation protection disabled. All CPU threads in a core
++	 * must disable speculation protection for it to be
++	 * disabled. Disable it while we are idle so the other
++	 * hyperthread can run fast.'
++	 *
+ 	 * XXXKIB.  Software coordination mode should be supported,
+ 	 * but all Intel CPUs provide hardware coordination.
+ 	 */
+@@ -147,9 +153,11 @@ acpi_cpu_idle_mwait(uint32_t mwait_hint)
+ 	KASSERT(*state == STATE_SLEEPING,
+ 		("cpu_mwait_cx: wrong monitorbuf state"));
+ 	*state = STATE_MWAIT;
++	handle_ibrs_entry();
+ 	cpu_monitor(state, 0, 0);
+ 	if (*state == STATE_MWAIT)
+ 		cpu_mwait(MWAIT_INTRBREAK, mwait_hint);
++	handle_ibrs_exit();
+ 
+ 	/*
+ 	 * We should exit on any event that interrupts mwait, because
+@@ -578,3 +586,47 @@ nmi_handle_intr(u_int type, struct trapframe *fram
+ 	nmi_call_kdb(PCPU_GET(cpuid), type, frame);
+ #endif
+ }
++
++int hw_ibrs_active;
++int hw_ibrs_disable = 1;
++
++SYSCTL_INT(_hw, OID_AUTO, ibrs_active, CTLFLAG_RD, &hw_ibrs_active, 0,
++    "Indirect Branch Restricted Speculation active");
++
++void
++hw_ibrs_recalculate(void)
++{
++	uint64_t v;
++
++	if ((cpu_ia32_arch_caps & IA32_ARCH_CAP_IBRS_ALL) != 0) {
++		if (hw_ibrs_disable) {
++			v= rdmsr(MSR_IA32_SPEC_CTRL);
++			v &= ~(uint64_t)IA32_SPEC_CTRL_IBRS;
++			wrmsr(MSR_IA32_SPEC_CTRL, v);
++		} else {
++			v= rdmsr(MSR_IA32_SPEC_CTRL);
++			v |= IA32_SPEC_CTRL_IBRS;
++			wrmsr(MSR_IA32_SPEC_CTRL, v);
++		}
++		return;
++	}
++	hw_ibrs_active = (cpu_stdext_feature3 & CPUID_STDEXT3_IBPB) != 0 &&
++	    !hw_ibrs_disable;
++}
++
++static int
++hw_ibrs_disable_handler(SYSCTL_HANDLER_ARGS)
++{
++	int error, val;
++
++	val = hw_ibrs_disable;
++	error = sysctl_handle_int(oidp, &val, 0, req);
++	if (error != 0 || req->newptr == NULL)
++		return (error);
++	hw_ibrs_disable = val != 0;
++	hw_ibrs_recalculate();
++	return (0);
++}
++SYSCTL_PROC(_hw, OID_AUTO, ibrs_disable, CTLTYPE_INT | CTLFLAG_RWTUN |
++    CTLFLAG_NOFETCH | CTLFLAG_MPSAFE, NULL, 0, hw_ibrs_disable_handler, "I",
++    "Disable Indirect Branch Restricted Speculation");
+Index: sys/x86/x86/identcpu.c
+===================================================================
+--- sys/x86/x86/identcpu.c	(revision 329241)
++++ sys/x86/x86/identcpu.c	(working copy)
+@@ -1606,6 +1606,17 @@ finishidentcpu(void)
+ #endif
+ }
+ 
++int
++pti_get_default(void)
++{
++
++	if (strcmp(cpu_vendor, AMD_VENDOR_ID) == 0)
++		return (0);
++	if ((cpu_ia32_arch_caps & IA32_ARCH_CAP_RDCL_NO) != 0)
++		return (0);
++	return (1);
++}
++
+ static u_int
+ find_cpu_vendor_id(void)
+ {
+Index: sys/x86/x86/local_apic.c
+===================================================================
+--- sys/x86/x86/local_apic.c	(revision 329241)
++++ sys/x86/x86/local_apic.c	(working copy)
+@@ -166,6 +166,16 @@ static inthand_t *ioint_handlers[] = {
+ 	IDTVEC(apic_isr7),	/* 224 - 255 */
+ };
+ 
++static inthand_t *ioint_pti_handlers[] = {
++	NULL,			/* 0 - 31 */
++	IDTVEC(apic_isr1_pti),	/* 32 - 63 */
++	IDTVEC(apic_isr2_pti),	/* 64 - 95 */
++	IDTVEC(apic_isr3_pti),	/* 96 - 127 */
++	IDTVEC(apic_isr4_pti),	/* 128 - 159 */
++	IDTVEC(apic_isr5_pti),	/* 160 - 191 */
++	IDTVEC(apic_isr6_pti),	/* 192 - 223 */
++	IDTVEC(apic_isr7_pti),	/* 224 - 255 */
++};
+ 
+ static u_int32_t lapic_timer_divisors[] = {
+ 	APIC_TDCR_1, APIC_TDCR_2, APIC_TDCR_4, APIC_TDCR_8, APIC_TDCR_16,
+@@ -172,7 +182,7 @@ static u_int32_t lapic_timer_divisors[] = {
+ 	APIC_TDCR_32, APIC_TDCR_64, APIC_TDCR_128
+ };
+ 
+-extern inthand_t IDTVEC(rsvd);
++extern inthand_t IDTVEC(rsvd_pti), IDTVEC(rsvd);
+ 
+ volatile char *lapic_map;
+ vm_paddr_t lapic_paddr;
+@@ -490,15 +500,18 @@ native_lapic_init(vm_paddr_t addr)
+ 	PCPU_SET(apic_id, lapic_id());
+ 
+ 	/* Local APIC timer interrupt. */
+-	setidt(APIC_TIMER_INT, IDTVEC(timerint), SDT_APIC, SEL_KPL, GSEL_APIC);
++	setidt(APIC_TIMER_INT, pti ? IDTVEC(timerint_pti) : IDTVEC(timerint),
++	    SDT_APIC, SEL_KPL, GSEL_APIC);
+ 
+ 	/* Local APIC error interrupt. */
+-	setidt(APIC_ERROR_INT, IDTVEC(errorint), SDT_APIC, SEL_KPL, GSEL_APIC);
++	setidt(APIC_ERROR_INT, pti ? IDTVEC(errorint_pti) : IDTVEC(errorint),
++	    SDT_APIC, SEL_KPL, GSEL_APIC);
+ 
+ 	/* XXX: Thermal interrupt */
+ 
+ 	/* Local APIC CMCI. */
+-	setidt(APIC_CMC_INT, IDTVEC(cmcint), SDT_APICT, SEL_KPL, GSEL_APIC);
++	setidt(APIC_CMC_INT, pti ? IDTVEC(cmcint_pti) : IDTVEC(cmcint),
++	    SDT_APICT, SEL_KPL, GSEL_APIC);
+ 
+ 	if ((resource_int_value("apic", 0, "clock", &i) != 0 || i != 0)) {
+ 		arat = 0;
+@@ -1562,8 +1575,8 @@ native_apic_enable_vector(u_int apic_id, u_int vec
+ 	KASSERT(vector != IDT_DTRACE_RET,
+ 	    ("Attempt to overwrite DTrace entry"));
+ #endif
+-	setidt(vector, ioint_handlers[vector / 32], SDT_APIC, SEL_KPL,
+-	    GSEL_APIC);
++	setidt(vector, (pti ? ioint_pti_handlers : ioint_handlers)[vector / 32],
++	    SDT_APIC, SEL_KPL, GSEL_APIC);
+ }
+ 
+ static void
+@@ -1582,7 +1595,8 @@ native_apic_disable_vector(u_int apic_id, u_int ve
+ 	 * We can not currently clear the idt entry because other cpus
+ 	 * may have a valid vector at this offset.
+ 	 */
+-	setidt(vector, &IDTVEC(rsvd), SDT_APICT, SEL_KPL, GSEL_APIC);
++	setidt(vector, pti ? &IDTVEC(rsvd_pti) : &IDTVEC(rsvd), SDT_APICT,
++	    SEL_KPL, GSEL_APIC);
+ #endif
+ }
+ 
+@@ -2085,7 +2099,8 @@ native_lapic_ipi_alloc(inthand_t *ipifunc)
+ 	long func;
+ 	int idx, vector;
+ 
+-	KASSERT(ipifunc != &IDTVEC(rsvd), ("invalid ipifunc %p", ipifunc));
++	KASSERT(ipifunc != &IDTVEC(rsvd) && ipifunc != &IDTVEC(rsvd_pti),
++	    ("invalid ipifunc %p", ipifunc));
+ 
+ 	vector = -1;
+ 	mtx_lock_spin(&icu_lock);
+@@ -2092,7 +2107,8 @@ native_lapic_ipi_alloc(inthand_t *ipifunc)
+ 	for (idx = IPI_DYN_FIRST; idx <= IPI_DYN_LAST; idx++) {
+ 		ip = &idt[idx];
+ 		func = (ip->gd_hioffset << 16) | ip->gd_looffset;
+-		if (func == (uintptr_t)&IDTVEC(rsvd)) {
++		if ((!pti && func == (uintptr_t)&IDTVEC(rsvd)) ||
++		    (pti && func == (uintptr_t)&IDTVEC(rsvd_pti))) {
+ 			vector = idx;
+ 			setidt(vector, ipifunc, SDT_APIC, SEL_KPL, GSEL_APIC);
+ 			break;
+@@ -2114,8 +2130,10 @@ native_lapic_ipi_free(int vector)
+ 	mtx_lock_spin(&icu_lock);
+ 	ip = &idt[vector];
+ 	func = (ip->gd_hioffset << 16) | ip->gd_looffset;
+-	KASSERT(func != (uintptr_t)&IDTVEC(rsvd),
++	KASSERT(func != (uintptr_t)&IDTVEC(rsvd) &&
++	    func != (uintptr_t)&IDTVEC(rsvd_pti),
+ 	    ("invalid idtfunc %#lx", func));
+-	setidt(vector, &IDTVEC(rsvd), SDT_APICT, SEL_KPL, GSEL_APIC);
++	setidt(vector, pti ? &IDTVEC(rsvd_pti) : &IDTVEC(rsvd), SDT_APICT,
++	    SEL_KPL, GSEL_APIC);
+ 	mtx_unlock_spin(&icu_lock);
+ }
+Index: sys/x86/x86/mp_x86.c
+===================================================================
+--- sys/x86/x86/mp_x86.c	(revision 329241)
++++ sys/x86/x86/mp_x86.c	(working copy)
+@@ -1436,7 +1436,7 @@ SYSINIT(mp_ipi_intrcnt, SI_SUB_INTR, SI_ORDER_MIDD
+  */
+ 
+ /* Variables needed for SMP tlb shootdown. */
+-static vm_offset_t smp_tlb_addr1, smp_tlb_addr2;
++vm_offset_t smp_tlb_addr1, smp_tlb_addr2;
+ pmap_t smp_tlb_pmap;
+ volatile uint32_t smp_tlb_generation;
+ 
+@@ -1509,11 +1509,11 @@ smp_masked_invltlb(cpuset_t mask, pmap_t pmap)
+ }
+ 
+ void
+-smp_masked_invlpg(cpuset_t mask, vm_offset_t addr)
++smp_masked_invlpg(cpuset_t mask, vm_offset_t addr, pmap_t pmap)
+ {
+ 
+ 	if (smp_started) {
+-		smp_targeted_tlb_shootdown(mask, IPI_INVLPG, NULL, addr, 0);
++		smp_targeted_tlb_shootdown(mask, IPI_INVLPG, pmap, addr, 0);
+ #ifdef COUNT_XINVLTLB_HITS
+ 		ipi_page++;
+ #endif
+@@ -1521,11 +1521,12 @@ void
+ }
+ 
+ void
+-smp_masked_invlpg_range(cpuset_t mask, vm_offset_t addr1, vm_offset_t addr2)
++smp_masked_invlpg_range(cpuset_t mask, vm_offset_t addr1, vm_offset_t addr2,
++    pmap_t pmap)
+ {
+ 
+ 	if (smp_started) {
+-		smp_targeted_tlb_shootdown(mask, IPI_INVLRNG, NULL,
++		smp_targeted_tlb_shootdown(mask, IPI_INVLRNG, pmap,
+ 		    addr1, addr2);
+ #ifdef COUNT_XINVLTLB_HITS
+ 		ipi_range++;
+Index: .
+===================================================================
+--- .	(revision 329241)
++++ .	(working copy)
+
+Property changes on: .
+___________________________________________________________________
+Modified: svn:mergeinfo
+## -0,0 +0,1 ##
+   Merged /head:r328083,328096,328116,328119-328120,328128,328135,328153,328157,328166,328177,328199,328202,328205,328468,328470,328624-328625,328627-328628,329214

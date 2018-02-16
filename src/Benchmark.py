@@ -3,13 +3,14 @@ import os
 from datetime import datetime
 import sys
 import ntpath
+from subprocess import call
 
 # name: name of the benchmark
 # setup: commands to run prior to benchmarking
 # setup_method: callback prior to benchmarking
 # paths: absolute path of the files to grab after benchmarking is complete
 # commands: commands to run when benchmarking
-
+# reboots the device between setup time and benchmark time
 class Benchmark(object):
     def __init__(self, 
             name, 
@@ -33,6 +34,12 @@ class Benchmark(object):
         client = util.create_client(util.get_device_ip(device))
         util.execute_commands(client, self.commands)
 
+# client: SSH client to run the commands on 
+# device: device object return from packet's api
+# command_once: only runs once prior to all the benchmarks
+# common_setup: runs this before setup of each benchmark
+# common_commands: runs these commands before the commands of each benchmark
+# sendfiles: local paths to the files to be sent to the server
 class BenchmarkRunner(object):
     def __init__(self,
             client,
@@ -106,5 +113,5 @@ class BenchmarkRunner(object):
         except Exception as e:
             print(e)
             print('couldn\'t get output.tar')
-
+        call(['tar', '-xf', output_file, '-C', output_path])
 

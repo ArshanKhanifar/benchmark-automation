@@ -31,7 +31,11 @@ mainParser.add_argument('-s', '-spotmarket',
                     default=True,
                     metavar='spotmarket',
                     type=str2bool,
-                    help='use spotmarket pricing, defaults to true') 
+                    help='use spotmarket pricing, defaults to true')
+
+mainParser.add_argument('--custom-setup',
+                    action='store',
+                    help='used for updating the kernel to a specific revision, and applying custom patches. Takes in the path to a custom setup json file.') 
 
 mainParser.add_argument('--device-id',
                     action='store',
