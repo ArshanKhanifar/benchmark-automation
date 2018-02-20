@@ -29,7 +29,7 @@ class DeviceSetup(object):
         commands_source_setup = [
             "git clone https://github.com/freebsd/freebsd.git /usr/tmp.src",
             "cp -r /usr/tmp.src/. /usr/src",
-            "git --git-dir=/usr/src/.git checkout %s"%rev
+            "cd /usr/src && git checkout %s"%rev
         ]
 
         client = util.create_client(self.device_ip)
@@ -41,6 +41,8 @@ class DeviceSetup(object):
         sftp_client = client.open_sftp()
         patchdir = 'patches'
         # all the patches will be at remote /root/patches directory
+        if util.dir_exists(sftp_client, patchdir):
+            util.rm_dir_recursive(client, patchdir)
         sftp_client.mkdir(patchdir)
         # patch is either a link to a diff file or a relative path to a diff file
         for patch in patches:
@@ -48,7 +50,10 @@ class DeviceSetup(object):
                 util.execute_command(client, 'curl -k %s | git --git-dir=/usr/src/.git apply -p0'%patch)
             else:
                 sftp_client.put(patch, '/root/%s/%s'%(patchdir, patch))
-                util.execute_command(client, 'git --git-dir=/usr/src/.git apply -p0 < /root/%s/%s'%(patchdir, patch))
+                util.execute_commands(client, [
+                        'cd /usr/src',
+                        'git apply -p0 < /root/%s/%s'%(patchdir, patch)
+                    ])
 
     def update(self):
         commands_update = [

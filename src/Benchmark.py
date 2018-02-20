@@ -78,6 +78,12 @@ class BenchmarkRunner(object):
     def run_benchmarks(self, names=[], run_all=False):
         foldername = 'report_' + datetime.now().strftime('%Y-%m-%d-%H-%M-%S') 
         os.mkdir(foldername)
+        deviceinfo = open('%s/deviceinfo.log' %foldername, 'w')
+        deviceinfo.writelines([
+                'device id: %s\n' %self.device_id,
+                'ip address: %s\n' %util.get_device_ip(self.device)
+            ])
+        deviceinfo.close()
         for name in names:
             self.run_benchmark(self.benchmarks[name], foldername)
 
@@ -114,4 +120,5 @@ class BenchmarkRunner(object):
             print(e)
             print('couldn\'t get output.tar')
         call(['tar', '-xf', output_file, '-C', output_path])
+
 

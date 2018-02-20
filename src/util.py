@@ -92,20 +92,17 @@ def execute_command(client, command):
     if isinstance(command, list):
         ignore = command[1]
         command = command[0]
+    channel = client.get_transport().open_session()
     print('#: ' + command)
-    stdin, stdout, stderr = client.exec_command(command)
-    # read the stdin in chunks (used for tasks with big outputs)
-    # such as buildkernel and buildworld
-    while True:
-        line = stdout.readline()
-        if line != '':
-            if not ignore:
-                print line,
-        else:
-            break
-    errstuff = stderr.readlines()
-    if len(errstuff):
-        print(''.join(errstuff))
+    channel.exec_command(command)
+    if channel.recv_exit_status() == 0:
+        if not ignore:
+            data = channel.recv(1024)
+            print data,
+    else:
+        print("Error: exiting...")
+        print(channel.recv_stderr(1024))
+        sys.exit()
 
 def execute_commands(client, commands):
     for command in commands:

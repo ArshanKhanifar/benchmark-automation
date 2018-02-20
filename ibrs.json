@@ -3,19 +3,26 @@
 		"MEF406F1_0B000025.bin"
 	],
 	"command_once": [
-		"make -C /usr/src/tools/tools/syscall_timing",
-		"make install -C /usr/src/tools/tools/syscall_timing",
 		"kldload cpuctl",
 		"for x in $(jot $(sysctl -n hw.ncpu) 0); do cpucontrol -u -d input/ /dev/cpuctl$x; done",
 		"cpucontrol -e /dev/cpuctl10",
-		"x86info -a | grep 'Micro'"
+
+		"mount -t tmpfs tmpfs /usr/src",
+		"mount -t tmpfs tmpfs /usr/obj",
+		"cp -r /usr/tmp.src/. /usr/src"
 	],
 	"common_commands": [
-		"/usr/obj/usr/src/amd64.amd64/tools/tools/syscall_timing/syscall_timing getppid > output/getppid.log",
 		"uname -a > output/uname.log",
 		"sysctl hw > output/sysctl.log",
 		"kenv | grep \"^smbios\\.\" > output/kenv.log",
-		"dmesg > output/dmesg.log"
+		"dmesg > output/dmesg.log",
+		"x86info -a > output/x86info.log",
+
+		"make -C /usr/src/tools/tools/syscall_timing",
+		"make install -C /usr/src/tools/tools/syscall_timing",
+		"/usr/obj/usr/src/amd64.amd64/tools/tools/syscall_timing/syscall_timing getppid > output/getppid.log",
+
+		"for i in $(jot 3); do rm -rf /usr/obj/*;(/usr/bin/time sh -c \"make -C /usr/src -j$(sysctl -n hw.ncpu) buildworld > output/build.$i.log 2>&1\") &>> output/buildtime.log;done"
 	],
 	"benchmarks": [
 		{

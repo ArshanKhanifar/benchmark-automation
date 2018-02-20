@@ -25,7 +25,7 @@ device_setup = DeviceSetup(device)
 if args.skip_setup:
     print("Skipping setup.")
 else:
-    if hasattr(args, 'custom_setup'):
+    if args.custom_setup is not None:
         config = json.load(open(args.custom_setup))
         device_setup.setup(**config)
     else:
