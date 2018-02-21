@@ -1,0 +1,6 @@
+
+		"make -C /usr/src/tools/tools/syscall_timing",
+		"make install -C /usr/src/tools/tools/syscall_timing",
+		"/usr/obj/usr/src/amd64.amd64/tools/tools/syscall_timing/syscall_timing getppid > output/getppid.log",
+
+		"for i in $(jot 3); do rm -rf /usr/obj/*; /usr/bin/time -o output/buildtime.$i.log sh -c \"make -C /usr/src -j$(sysctl -n hw.ncpu) buildworld > output/build.$i.log 2>&1\"; done"

@@ -95,6 +95,7 @@ def execute_command(client, command):
     channel = client.get_transport().open_session()
     print('#: ' + command)
     channel.exec_command(command)
+
     if channel.recv_exit_status() == 0:
         if not ignore:
             data = channel.recv(1024)

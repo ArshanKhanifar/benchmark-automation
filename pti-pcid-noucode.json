@@ -19,12 +19,7 @@
 		"mount -t tmpfs tmpfs /usr/obj",
 		"cp -r /usr/tmp.src/. /usr/src",
 
-		"make -C /usr/src/tools/tools/syscall_timing",
-		"make install -C /usr/src/tools/tools/syscall_timing",
-		"/usr/obj/usr/src/amd64.amd64/tools/tools/syscall_timing/syscall_timing getppid > output/getppid.log",
-
-		"rm -rf /usr/obj/*",
-		"/usr/bin/time -o output/buildtime.log sh -c \"make -C /usr/src -j$(sysctl -n hw.ncpu) buildworld > output/build.log 2>&1\""
+		"for i in $(jot 3); do rm -rf /usr/obj/*; /usr/bin/time -o output/buildtime.$i.log sh -c \"make -C /usr/src/tools/tools/syscall_timing clean; make -C /usr/src/tools/tools/syscall_timing > output/build.$i.log 2>&1\"; done"
 	],
 	"benchmarks": [
 		{
@@ -33,7 +28,7 @@
 				"echo 'vm.pmap.pti=0' >> /boot/loader.conf",
 				"echo 'vm.pmap.pcid_enabled=0' >> /boot/loader.conf"
 			],
-			"needs_reboot": true
+			"needs_reboot": false
 		},
 		{
 			"name": "pti-0-pcid-1",
@@ -41,7 +36,7 @@
 				"echo 'vm.pmap.pti=0' >> /boot/loader.conf",
 				"echo 'vm.pmap.pcid_enabled=1' >> /boot/loader.conf"
 			],
-			"needs_reboot": true
+			"needs_reboot": false
 		},
 		{
 			"name": "pti-1-pcid-1",
@@ -49,7 +44,7 @@
 				"echo 'vm.pmap.pti=1' >> /boot/loader.conf",
 				"echo 'vm.pmap.pcid_enabled=1' >> /boot/loader.conf"
 			],
-			"needs_reboot": true
+			"needs_reboot": false
 		},
 		{
 			"name": "pti-1-pcid-0",
@@ -57,7 +52,7 @@
 				"echo 'vm.pmap.pti=1' >> /boot/loader.conf",
 				"echo 'vm.pmap.pcid_enabled=0' >> /boot/loader.conf"
 			],
-			"needs_reboot": true
+			"needs_reboot": false
 		}
 	]
 }
