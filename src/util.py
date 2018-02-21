@@ -93,15 +93,27 @@ def execute_command(client, command):
         ignore = command[1]
         command = command[0]
     channel = client.get_transport().open_session()
-    print('#: ' + command)
+    if not ignore: 
+        print('#: ' + command)
     channel.exec_command(command)
+    while not channel.exit_status_ready():
+        pass
     if channel.recv_exit_status() == 0:
         if not ignore:
-            data = channel.recv(1024)
+            data = ''
+            d = 'a' # some nonempty value to enter the loop
+            while d:
+                d = channel.recv(1024)
+                data = data + d
             print data,
     else:
         print("Error: exiting...")
-        print(channel.recv_stderr(1024))
+        err = ''
+        e = 'a'
+        while e:
+            e = channel.recv_stderr(1024)
+            err = err + e
+        print err,
         sys.exit()
 
 def execute_commands(client, commands):
