@@ -1,11 +1,11 @@
 {
-	"once": [
+	"command_once": [
 		"echo 'TEST: once'"
 	],
-	"common-setup": [
+	"common_setup": [
 		"echo 'TEST: common-setup'"
 	],
-	"common-commands": [
+	"common_commands": [
 		"echo 'TEST: common-command'"
 	],
 	"benchmarks": [

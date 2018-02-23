@@ -10,41 +10,32 @@ def str2bool(v):
 
 mainParser = argparse.ArgumentParser(description='Benchmark for pti, and ibrs:')
 
-mainParser.add_argument('--skip-setup',
+mainParser.add_argument('--setup',
                     action='store_true',
-                    help='skips the machine setup')
+                    help='Does initial setup, refer to source to see what commands are used')
 
-mainParser.add_argument('--skip-update',
+mainParser.add_argument('--update',
                     action='store_true',
-                    help='skips the kernel update')
-
-mainParser.add_argument('--skip-benchmark',
-                    action='store_true',
-                    help='does not perform benchmarking, used for setting up a server for other purposes')
-
-mainParser.add_argument('--use-last',
-                    action='store_true',
-                    help='uses the last device id used, (stored in cache/deviceid)')
+                    help='Updates the OS to HEAD, to update to a specific revision, use --custom-update')
 
 mainParser.add_argument('-s', '-spotmarket',
                     action='store',
                     default=True,
                     metavar='spotmarket',
                     type=str2bool,
-                    help='use spotmarket pricing, defaults to true')
+                    help='Use spotmarket pricing, defaults to true')
 
-mainParser.add_argument('--custom-setup',
+mainParser.add_argument('--custom-update',
                     action='store',
-                    help='Used for updating the kernel to a specific revision, and applying custom patches. Takes in the path to a custom setup json file.') 
+                    help='Used for updating the kernel to a specific revision, and applying custom patches. Takes in the path to a custom update json file.') 
 
-mainParser.add_argument('--device-id',
+mainParser.add_argument('--device-ip',
                     action='store',
-                    help='when not creating a new device, use the device id to run the tests on an existing device') 
+                    help='When not creating a new device, use the device id to run the tests on an existing device') 
 
 mainParser.add_argument('--benchmarks-file',
                     action='store',
-                    default='benchmarks.json',
-                    help='relative address to the json file containing benchmark commands') 
+                    help='Relative address to the json file containing benchmark commands') 
 
 mainParser.add_argument('--create-new',
                     action='store_true',

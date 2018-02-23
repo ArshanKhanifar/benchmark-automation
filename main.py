@@ -1,53 +1,47 @@
-import packet
-import subprocess
 from src.arguments import mainParser
-import src.util as util
+from src.Benchmark import Benchmark, BenchmarkRunner
+from src.Device import Device
+from src.DeviceSetup import DeviceSetup
+import src.PacketUtil as PacketUtil
+
 import json
-import time
 import sys
 import copy
-from src.Benchmark import Benchmark, BenchmarkRunner
-from DeviceSetup import DeviceSetup
 
 args = mainParser.parse_args()
 
-manager = packet.Manager(auth_token="PDDno4gUFgZqMpE97nTKdvc1asVjqUyS")
+device_ip = args.device_ip 
 
-# get the device
-device = util.get_testing_device(args)
-# wait until device is active
-util.wait_till_active(device)
-ip_address = util.get_device_ip(device)
+if (args.device_ip is None) and not args.create_new:
+    print("Please specify either a device id or create new.")
+    sys.exit()
 
+if args.create_new:
+    device_ip = PacketUtil.create_device(args)
+
+device = Device(device_ip)
 device_setup = DeviceSetup(device)
 
 # setup: installs packages, sets environment configs
-if args.skip_setup:
-    print("Skipping setup.")
-else:
-    if args.custom_setup is not None:
-        config = json.load(open(args.custom_setup))
-        device_setup.setup(**config)
-    else:
-        device_setup.setup()
+if args.setup:
+    device_setup.setup()
 
 # update: builds and updates the kernel 
-if args.skip_update:
-    print("Skipping update.")
-else:
-    device_setup.update()
+if args.update:
+    if args.custom_update is not None:
+        config = json.load(open(args.custom_update))
+        device_setup.update(**config)
+    else:
+        device_setup.update()
 
-client = util.create_client(ip_address)
-
-if args.skip_benchmark:
-    print("Skipping benchmark.")
+if args.benchmarks_file is None:
+    print("No benchmarks file provided.")
     sys.exit()
 
 configDict = json.load(open(args.benchmarks_file))
 benchmarkRunnerDict = copy.deepcopy(configDict)
 benchmarkRunnerDict.pop('benchmarks')
 benchmark_runner = BenchmarkRunner(
-                        client, 
                         device,
                         **benchmarkRunnerDict)
 
@@ -59,7 +53,6 @@ for benchmark in configDict['benchmarks']:
     bNames = bNames + [benchmark['name']]
 
 benchmark_runner.run_benchmarks(names=bNames)
-client.close()
 
 print("BUENO")
 
