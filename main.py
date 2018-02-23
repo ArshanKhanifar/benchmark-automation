@@ -37,12 +37,13 @@ if args.skip_update:
 else:
     device_setup.update()
 
+client = util.create_client(ip_address)
+
 if args.skip_benchmark:
     print("Skipping benchmark.")
     sys.exit()
 
 configDict = json.load(open(args.benchmarks_file))
-client = util.create_client(ip_address)
 benchmarkRunnerDict = copy.deepcopy(configDict)
 benchmarkRunnerDict.pop('benchmarks')
 benchmark_runner = BenchmarkRunner(
