@@ -9,7 +9,7 @@
 		"sed -i '.bak' '/.*pcid_enabled=[01]$/d' /boot/loader.conf"
 	],
 	"common_commands": [
-		"kldload cpuctl",
+		"if ! kldstat -n cpuctl -q; then kldload cpuctl; fi",
 		"for x in $(jot $(sysctl -n hw.ncpu) 0); do cpucontrol -u -d input/ /dev/cpuctl$x; done",
 		"cpucontrol -e /dev/cpuctl10",
 
@@ -27,7 +27,8 @@
 		"make install -C /usr/src/tools/tools/syscall_timing",
 		"/usr/obj/usr/src/amd64.amd64/tools/tools/syscall_timing/syscall_timing getppid > output/getppid.log",
 		
-		"for i in $(jot 3); do rm -rf /usr/obj/*;(/usr/bin/time sh -c \"make -C /usr/src -j$(sysctl -n hw.ncpu) buildworld > output/build.$i.log 2>&1\") &>> output/buildtime.log;done"
+		"rm -rf /usr/obj/*",
+		"/usr/bin/time -o output/buildtime.log sh -c \"make -C /usr/src -j$(sysctl -n hw.ncpu) buildworld > output/build.log 2>&1\""
 	],
 	"benchmarks": [
 		{

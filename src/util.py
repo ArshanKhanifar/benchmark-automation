@@ -93,8 +93,7 @@ def execute_command(client, command):
         ignore = command[1]
         command = command[0]
     channel = client.get_transport().open_session()
-    if not ignore: 
-        print('#: ' + command)
+    print('#: ' + command)
     channel.exec_command(command)
     while not channel.exit_status_ready():
         pass
