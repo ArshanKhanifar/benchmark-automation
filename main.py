@@ -1,4 +1,4 @@
-from src.arguments import mainParser
+from src.arguments import args
 from src.Benchmark import Benchmark, BenchmarkRunner
 from src.Device import Device
 from src.DeviceSetup import DeviceSetup
@@ -8,18 +8,15 @@ import json
 import sys
 import copy
 
-args = mainParser.parse_args()
-
 device_ip = args.device_ip 
-
-if (args.device_ip is None) and not args.create_new:
-    print("Please specify either a device id or create new.")
-    sys.exit()
 
 if args.create_new:
     device_ip = PacketUtil.create_device(args)
 
-device = Device(device_ip)
+device = Device(device_ip,
+            password=args.password,
+            passphrase=args.passphrase,
+            load_keys=args.load_keys)
 device_setup = DeviceSetup(device)
 
 # setup: installs packages, sets environment configs

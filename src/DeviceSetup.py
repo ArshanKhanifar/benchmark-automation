@@ -7,12 +7,12 @@ class DeviceSetup(object):
 
     def setup(self):
         commands_setup = [
-            #"sed -i .bak 's/quarterly/latest/' /etc/pkg/FreeBSD.conf",
-            #"sed -i .bak -e '/^#.*ASSUME_ALWAYS_YES /s/^#//' -e '/ASSUME_ALWAYS_YES /s/false/true/' /usr/local/etc/pkg.conf",
-            #"sed -i '.bak' -e 's/^mlxen/mlx4en/' /boot/loader.conf",
-            #"pkg install tmux vim-console git fzf zsh x86info yasm bash",
-            #"chsh -s /usr/local/bin/zsh",
-            "sh -c \"$(curl -fsSL https://raw.githubusercontent.com/robbyrussell/oh-my-zsh/master/tools/install.sh)\""
+            "sed -i .bak 's/quarterly/latest/' /etc/pkg/FreeBSD.conf",
+            "sed -i .bak -e '/^#.*ASSUME_ALWAYS_YES /s/^#//' -e '/ASSUME_ALWAYS_YES /s/false/true/' /usr/local/etc/pkg.conf",
+            "sed -i '.bak' -e 's/^mlxen/mlx4en/' /boot/loader.conf",
+            "pkg install tmux vim-console git fzf zsh x86info yasm bash",
+            "chsh -s /usr/local/bin/zsh",
+            #"sh -c \"$(curl -fsSL https://raw.githubusercontent.com/robbyrussell/oh-my-zsh/master/tools/install.sh)\""
         ]
         self.device.execute_commands(commands_setup)
 
@@ -21,8 +21,8 @@ class DeviceSetup(object):
         self.__apply_patches(patches)
 
         commands_update = [
-            ["make -C /usr/src KERNCONF=GENERIC-NODEBUG -j$(sysctl -n hw.ncpu) buildkernel buildworld", True],
-            ["make -C /usr/src KERNCONF=GENERIC-NODEBUG installkernel installworld", True],
+            "make -C /usr/src KERNCONF=GENERIC-NODEBUG -j$(sysctl -n hw.ncpu) buildkernel buildworld > %s/update-build.log 2>&1"%self.device.outputdir,
+            "make -C /usr/src KERNCONF=GENERIC-NODEBUG installkernel installworld > %s/install-build.log 2>&1"%self.device.outputdir,
         ]
         self.device.execute_commands(commands_update)
         self.device.reboot()
@@ -30,8 +30,8 @@ class DeviceSetup(object):
     def __source_tree_setup(self, rev):
         commands_source_setup = [
             "git clone https://github.com/freebsd/freebsd.git /usr/tmp.src",
-            "cp -r /usr/tmp.src/. /usr/src",
-            "cd /usr/src && git checkout %s"%rev
+            "rm -rf /usr/src; cp -r /usr/tmp.src/. /usr/src",
+            "cd /usr/src; git checkout %s"%rev
         ]
         self.device.execute_commands(commands_source_setup)
 
@@ -40,14 +40,12 @@ class DeviceSetup(object):
         for patch in patches:
             if patch.startswith('http'):
                 self.device.execute_commands([
-                        'cd /usr/src',
-                        'curl -k %s | git apply -p0'%patch
+                        'cd /usr/src; curl -k %s | git apply -p1'%patch
                     ])
             else:
                 self.send_file(patch)
                 patchname = patch.split('/')[-1]
                 self.device.execute_commands([
-                        'cd /usr/src',
-                        'git apply -p0 < /root/%s/%s'%(self.device.inputdir, patchname)
+                        'cd /usr/src; git apply -p1 < /root/%s/%s'%(self.device.inputdir, patchname)
                     ])
 

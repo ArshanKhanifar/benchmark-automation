@@ -1,4 +1,5 @@
 import argparse
+import sys
 
 def str2bool(v):
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -9,6 +10,20 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 mainParser = argparse.ArgumentParser(description='Benchmark for pti, and ibrs:')
+
+mainParser.add_argument('--password',
+                    action='store',
+                    default='',
+                    help='Password for ssh authentication')
+
+mainParser.add_argument('--passphrase',
+                    action='store',
+                    default='',
+                    help='Passphrase for decrypting private keys')
+
+mainParser.add_argument('--load-keys',
+                    action='store_true',
+                    help='Load system host keys, use when using private keys to authenticate')
 
 mainParser.add_argument('--setup',
                     action='store_true',
@@ -68,3 +83,11 @@ mainParser.add_argument('-p', '-plan',
                     default='baremetal_2',
                     help='type of plan')
 
+args = mainParser.parse_args()
+
+if args.passphrase:
+    args.load_keys = True
+
+if (args.device_ip is None) and not args.create_new:
+    print("Please specify either a device id or create new.")
+    sys.exit()

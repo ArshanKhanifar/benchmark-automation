@@ -2,20 +2,27 @@ from paramiko.client import SSHClient,AutoAddPolicy
 import time, sys
 
 class Device(object):
-    def __init__(self, device_ip, inputdir='input', outputdir='output'):
+    def __init__(self,
+            device_ip,
+            inputdir='input',
+            outputdir='output',
+            load_keys=False,
+            password='',
+            passphrase=''):
         self.device_ip = device_ip
         self.inputdir = inputdir
         self.outputdir = outputdir
+        self.password = password
+        self.passphrase = passphrase
+        self.load_keys = load_keys
         self.execute_commands([
                 'rm -rf %s; mkdir %s'%(self.inputdir, self.inputdir),
                 'rm -rf %s; mkdir %s'%(self.outputdir, self.outputdir)
             ])
     
     def execute_commands(self, commands):
-        client = self.__get_client()
         for command in commands:
-            self.execute_command(command, client)
-        client.close()
+            self.execute_command(command)
     
     def send_files(self, paths):
         for path in paths:
@@ -42,11 +49,8 @@ class Device(object):
         client = self.__get_client()
         client.close()
 
-    def execute_command(self, command, client=None):
-        needs_close = False 
-        if client is None:
-            client = self.__get_client()
-            needs_close = True
+    def execute_command(self, command):
+        client = self.__get_client()
         ignore = False
         if isinstance(command, list):
             ignore = command[1]
@@ -63,7 +67,9 @@ class Device(object):
                 while d:
                     d = channel.recv(1024)
                     data = data + d
-                print data,
+                if data:
+                    print data 
+
         else:
             print("Error: exiting...")
             err = ''
@@ -73,8 +79,7 @@ class Device(object):
                 err = err + e
             print err,
             sys.exit()
-        if needs_close:
-            client.close()
+        client.close()
 
     def isReady(self):
         client = self.__get_client()
@@ -82,16 +87,23 @@ class Device(object):
 
     def __get_client(self):
         client = None
-        try:
-            client = SSHClient()
-            client.load_system_host_keys()
-            client.set_missing_host_key_policy(AutoAddPolicy())
-            client.connect(self.device_ip, 
-                           username='root',
-                           passphrase='Physics92',
-                           timeout=1)
-        except:
-            print("ssh couldn't connect, trying again...")
-            return self.__get_client()
+        while client == None:
+            try:
+                client = SSHClient()
+                if self.load_keys:
+                    client.load_system_host_keys()
+                client.set_missing_host_key_policy(AutoAddPolicy())
+                connect_arguments = {
+                        'username': 'root',
+                        'timeout': 1
+                }
+                if self.password:
+                    connect_arguments['password'] = self.password
+                if self.passphrase:
+                    connect_arguments['passphrase'] = self.passphrase
+                client.connect(self.device_ip, **connect_arguments)
+            except Exception as e:
+                print e
+                print("ssh couldn't connect, trying again...")
         return client
 
