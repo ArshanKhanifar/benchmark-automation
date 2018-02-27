@@ -1,4 +1,5 @@
 from paramiko.client import SSHClient,AutoAddPolicy
+from datetime import datetime
 import time, sys
 
 class Device(object):
@@ -10,9 +11,9 @@ class Device(object):
             password='',
             passphrase=''):
         self.device_ip = device_ip
+        self.password = password
         self.inputdir = inputdir
         self.outputdir = outputdir
-        self.password = password
         self.passphrase = passphrase
         self.load_keys = load_keys
         self.execute_commands([
@@ -55,30 +56,18 @@ class Device(object):
         if isinstance(command, list):
             ignore = command[1]
             command = command[0]
-        channel = client.get_transport().open_session()
-        print('#: ' + command)
-        channel.exec_command(command)
-        while not channel.exit_status_ready():
-            pass
-        if channel.recv_exit_status() == 0:
-            if not ignore:
-                data = ''
-                d = 'a' # some nonempty value to enter the loop
-                while d:
-                    d = channel.recv(1024)
-                    data = data + d
-                if data:
-                    print data 
 
-        else:
-            print("Error: exiting...")
-            err = ''
-            e = 'a'
-            while e:
-                e = channel.recv_stderr(1024)
-                err = err + e
-            print err,
-            sys.exit()
+        print "~ %s"%command
+        stdin, stdout, stderr = client.exec_command(command)
+
+        output = stdout.readlines()
+        error = stderr.readlines()
+        if not ignore:
+            print '\n'.join(stdout)
+        
+        print 'ERROR:'
+        print '\n'.join(error)
+         
         client.close()
 
     def isReady(self):
