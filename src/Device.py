@@ -16,7 +16,7 @@ class Device(object):
         self.passphrase = passphrase
         self.load_keys = load_keys
 
-    def clear_in_out_dir(self):
+    def make_in_out_dir(self):
         self.execute_commands([
                 'rm -rf %s; mkdir %s'%(self.inputdir, self.inputdir),
                 'rm -rf %s; mkdir %s'%(self.outputdir, self.outputdir)

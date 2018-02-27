@@ -12,7 +12,7 @@ class DeviceSetup(object):
             "sed -i '.bak' -e 's/^mlxen/mlx4en/' /boot/loader.conf",
             "pkg install tmux vim-console git fzf zsh x86info yasm bash",
             "chsh -s /usr/local/bin/zsh",
-            #"sh -c \"$(curl -fsSL https://raw.githubusercontent.com/robbyrussell/oh-my-zsh/master/tools/install.sh)\""
+            "sh -c \"$(curl -fsSL https://raw.githubusercontent.com/robbyrussell/oh-my-zsh/master/tools/install.sh)\""
         ]
         self.device.execute_commands(commands_setup)
 
@@ -21,8 +21,9 @@ class DeviceSetup(object):
         self.__apply_patches(patches)
 
         commands_update = [
-            "make -C /usr/src KERNCONF=GENERIC-NODEBUG -j$(sysctl -n hw.ncpu) buildkernel buildworld > %s/update-build.log 2>&1"%self.device.outputdir,
-            "make -C /usr/src KERNCONF=GENERIC-NODEBUG installkernel installworld > %s/install-build.log 2>&1"%self.device.outputdir,
+            "mkdir update-logs",
+            "make -C /usr/src KERNCONF=GENERIC-NODEBUG -j$(sysctl -n hw.ncpu) buildkernel buildworld > update_logs/update-build.log 2>&1",
+            "make -C /usr/src KERNCONF=GENERIC-NODEBUG installkernel installworld > update-logs/install-build.log 2>&1",
         ]
         self.device.execute_commands(commands_update)
         self.device.reboot()
