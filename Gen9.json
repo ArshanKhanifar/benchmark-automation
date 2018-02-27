@@ -1,0 +1,17 @@
+{
+	"benchmarks": [
+		{
+			"name": "buildworld",
+			"setup": [
+				"echo 'TEST: REBOOTING...'"
+			],
+			"commands": [
+				"mkdir blah",
+				"mkdir blah",
+				"echo 'should exit'",
+				["mkdir blah", false, true]
+			]
+		}
+	]
+}
+

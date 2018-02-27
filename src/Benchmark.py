@@ -49,8 +49,9 @@ class BenchmarkRunner(object):
         self.command_once = command_once
         self.common_setup = common_setup
         self.common_commands = common_commands
-
-        # sending input files
+        
+        # making input and output directories, sending input files
+        self.device.clear_in_out_dir()
         self.device.send_files(sendfiles)
 
         # executing the commands that are meant to be run only once
