@@ -58,27 +58,23 @@ class Device(object):
         channel = client.get_transport().open_session()
         print('#: ' + command)
         channel.exec_command(command)
-        while not channel.exit_status_ready():
-            pass
-        if channel.recv_exit_status() == 0:
-            if not ignore:
-                data = ''
-                d = 'a' # some nonempty value to enter the loop
-                while d:
-                    d = channel.recv(1024)
-                    data = data + d
-                if data:
-                    print data 
+        
+        data_out = ''
+        while channel.recv_ready():
+            print('getting data')
+            d = channel.recv(1024)
+            print d
+            data_out = data_out + d
+        if data_out:
+            print data_out
 
-        else:
-            print("Error: exiting...")
-            err = ''
-            e = 'a'
-            while e:
-                e = channel.recv_stderr(1024)
-                err = err + e
-            print err,
-            sys.exit()
+        data_err = ''
+        while channel.recv_stderr_ready():
+            e = channel.recv_stderr(1024)
+            data_err = data_err + e
+        if data_err:
+            print data_err
+
         client.close()
 
     def isReady(self):
