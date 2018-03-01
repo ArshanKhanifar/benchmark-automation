@@ -22,8 +22,8 @@ class DeviceSetup(object):
 
         commands_update = [
             "mkdir update-logs",
-            "make -C /usr/src KERNCONF=GENERIC-NODEBUG -j$(sysctl -n hw.ncpu) buildkernel buildworld > update_logs/update-build.log 2>&1",
-            "make -C /usr/src KERNCONF=GENERIC-NODEBUG installkernel installworld > update-logs/install-build.log 2>&1",
+            ["make -C /usr/src KERNCONF=GENERIC-NODEBUG -j$(sysctl -n hw.ncpu) buildkernel buildworld > update-logs/update-build.log 2>&1", False, True],
+            ["make -C /usr/src KERNCONF=GENERIC-NODEBUG installkernel installworld > update-logs/install-build.log 2>&1", False, True],
         ]
         self.device.execute_commands(commands_update)
         self.device.reboot()
