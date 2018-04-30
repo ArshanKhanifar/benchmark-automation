@@ -1,10 +1,24 @@
 ### Automation Scripts
 
-This repository is a set of python scripts facilitating automation of benchmarks on a remote machine. I used this to test/benchmark the performance of `PTI` patches on various versions of FreeBSD.
+This repository is a set of python scripts facilitating automation of benchmarks on a remote machine. I used this to validate and benchmark the performance of Spectre and Meltdown mitigations as they were being developed on various versions of FreeBSD.
+
+The raw data collected using these scripts are located at [this repo](https://github.com/ArshanKhanifar/spectre-meltdown-benchmarks).
+
+To see my work-term report explaining these benchmarks, [click here](https://drive.google.com/open?id=1N-KEESAl8a4zgXDPFPS2j1wMrAUpm3Vt).
 
 ## Installation
 
+All the dependent packages have been exported to `requirements.txt`.
+Using virtual env:
+`
+$ virtualenv <env_name>
+$ source <env_name>/bin/activate
+(<env_name>)$ pip install -r path/to/requirements.txt
+`
+
 ## Usage
+
+These scripts are written to work perfectly with [packet's](https://www.packet.net) machines.
 
 To see a list available options, use `--help`: 
 ```
